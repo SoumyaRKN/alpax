@@ -65,9 +65,29 @@ pub async fn handle(req: Request, state: Arc<Mutex<State>>) -> Response {
                                 "path": {
                                     "type": "string",
                                     "description": "Absolute or relative path to the workspace root directory."
+                                },
+                                "force": {
+                                    "type": "boolean",
+                                    "description": "Force a complete re-index from scratch if true."
                                 }
-                            },
-                            "required": ["path"]
+                            }
+                        }
+                    },
+                    {
+                        "name": "reindex_workspace",
+                        "description": "Re-index workspace files. Use force: true to rebuild the entire index from scratch, or force: false to update only modified files.",
+                        "inputSchema": {
+                            "type": "object",
+                            "properties": {
+                                "path": {
+                                    "type": "string",
+                                    "description": "Path to workspace root (defaults to current directory)."
+                                },
+                                "force": {
+                                    "type": "boolean",
+                                    "description": "Rebuild index from scratch if true (default: true)."
+                                }
+                            }
                         }
                     },
                     {
@@ -134,6 +154,7 @@ pub async fn handle(req: Request, state: Arc<Mutex<State>>) -> Response {
 
             match tool_name {
                 "index_workspace" => handle_index(id, args, state).await,
+                "reindex_workspace" => handle_reindex(id, args, state).await,
                 "query_codebase" => handle_query(id, args, state).await,
                 "get_config" => handle_get_config(id, state).await,
                 "set_config" => handle_set_config(id, args, state).await,
@@ -144,17 +165,43 @@ pub async fn handle(req: Request, state: Arc<Mutex<State>>) -> Response {
     }
 }
 
-async fn index_internal(st: &mut State, root_path: &Path) -> Result<String, String> {
-    info!("Starting workspace scan at: {}", root_path.display());
-    let files = Slicer::scan(root_path);
-    info!("Discovered {} candidate files", files.len());
+async fn index_internal(st: &mut State, root_path: &Path, force: bool) -> Result<String, String> {
+    if force {
+        info!("Force re-indexing: clearing hash cache and resetting vector table...");
+        st.hasher.clear();
+        let _ = st.store.clear().await;
+    }
 
+    info!("Starting workspace scan at: {}", root_path.display());
+    let current_files = Slicer::scan(root_path);
+    info!("Discovered {} candidate files", current_files.len());
+
+    let current_set: std::collections::HashSet<std::path::PathBuf> = current_files
+        .iter()
+        .map(|p| p.canonicalize().unwrap_or_else(|_| p.clone()))
+        .collect();
+
+    // 1. Remove deleted files from LanceDB
+    let cached = st.hasher.cached_paths();
+    let mut files_deleted = 0usize;
+    for cached_path in cached {
+        if !current_set.contains(&cached_path) {
+            let _ = st.store.remove_file(&cached_path.to_string_lossy()).await;
+            st.hasher.remove(&cached_path);
+            files_deleted += 1;
+        }
+    }
+
+    // 2. Scan and slice dirty files
     let mut files_indexed = 0usize;
     let mut files_skipped = 0usize;
     let mut all_chunks = Vec::new();
 
-    for file_path in &files {
+    for file_path in &current_files {
         if st.hasher.dirty(file_path) {
+            // Remove previous chunks for this file if updating to avoid duplication
+            let _ = st.store.remove_file(&file_path.to_string_lossy()).await;
+
             if let Some(chunks) = st.slicer.slice(file_path) {
                 if !chunks.is_empty() {
                     files_indexed += 1;
@@ -193,18 +240,32 @@ async fn index_internal(st: &mut State, root_path: &Path) -> Result<String, Stri
         }
     }
 
-    let msg = format!(
-        "Indexing complete. Indexed {files_indexed} files ({total_chunks} chunks), skipped {files_skipped} unchanged files."
-    );
-    info!("{msg}");
-    Ok(msg)
+    let mut parts = Vec::new();
+    if files_indexed > 0 {
+        parts.push(format!(
+            "indexed {files_indexed} changed files ({total_chunks} chunks)"
+        ));
+    }
+    if files_deleted > 0 {
+        parts.push(format!("pruned {files_deleted} deleted files"));
+    }
+    if files_skipped > 0 {
+        parts.push(format!("skipped {files_skipped} unchanged files"));
+    }
+
+    let summary = if parts.is_empty() {
+        "Index is up to date (0 files changed).".to_string()
+    } else {
+        format!("Indexing complete. {}.", parts.join(", "))
+    };
+
+    info!("{summary}");
+    Ok(summary)
 }
 
 async fn handle_index(id: Option<Value>, args: Value, state: Arc<Mutex<State>>) -> Response {
-    let path_str = match args.get("path").and_then(|v| v.as_str()) {
-        Some(p) => p,
-        None => return Response::err(id, -32602, "Missing 'path' argument in index_workspace"),
-    };
+    let path_str = args.get("path").and_then(|v| v.as_str()).unwrap_or(".");
+    let force = args.get("force").and_then(|v| v.as_bool()).unwrap_or(false);
 
     let root_path = Path::new(path_str);
     if !root_path.exists() {
@@ -216,7 +277,7 @@ async fn handle_index(id: Option<Value>, args: Value, state: Arc<Mutex<State>>) 
     }
 
     let mut st = state.lock().await;
-    match index_internal(&mut st, root_path).await {
+    match index_internal(&mut st, root_path, force).await {
         Ok(msg) => Response::ok(
             id,
             json!({
@@ -230,6 +291,39 @@ async fn handle_index(id: Option<Value>, args: Value, state: Arc<Mutex<State>>) 
         ),
         Err(e) => {
             error!("Indexing failed: {e}");
+            Response::err(id, -32603, e)
+        }
+    }
+}
+
+async fn handle_reindex(id: Option<Value>, args: Value, state: Arc<Mutex<State>>) -> Response {
+    let path_str = args.get("path").and_then(|v| v.as_str()).unwrap_or(".");
+    let force = args.get("force").and_then(|v| v.as_bool()).unwrap_or(true); // Default to full rebuild for explicit reindex
+
+    let root_path = Path::new(path_str);
+    if !root_path.exists() {
+        return Response::err(
+            id,
+            -32602,
+            format!("Path '{}' does not exist", root_path.display()),
+        );
+    }
+
+    let mut st = state.lock().await;
+    match index_internal(&mut st, root_path, force).await {
+        Ok(msg) => Response::ok(
+            id,
+            json!({
+                "content": [
+                    {
+                        "type": "text",
+                        "text": msg
+                    }
+                ]
+            }),
+        ),
+        Err(e) => {
+            error!("Re-indexing failed: {e}");
             Response::err(id, -32603, e)
         }
     }
@@ -249,11 +343,9 @@ async fn handle_query(id: Option<Value>, args: Value, state: Arc<Mutex<State>>) 
     info!("Executing semantic search for query: '{prompt}' with limit: {limit}");
     let mut st = state.lock().await;
 
-    // Automatic out-of-the-box indexing: If table does not yet exist, auto-index current directory
-    if st.store.table.is_none() {
-        info!("No existing index found. Automatically indexing workspace on first query...");
-        let _ = index_internal(&mut st, Path::new(".")).await;
-    }
+    // Automatic Just-in-Time Incremental Sync before answering query:
+    // Takes <1ms when no files changed; auto-indexes modified files on the fly
+    let _ = index_internal(&mut st, Path::new("."), false).await;
 
     let query_vector = match st.embedder.single(prompt) {
         Ok(v) => v,

@@ -37,8 +37,24 @@ impl Config {
         Self::default()
     }
 
+    /// Load config with layered resolution (highest priority first):
+    /// 1. Environment variables (`ALPAX_*`)
+    /// 2. `./alpax.toml`  — project-local override
+    /// 3. `~/.alpax/alpax.toml` — global user config written by `install.sh`
+    /// 4. Compiled-in defaults
     pub fn load() -> Self {
-        let mut cfg = Self::from_file_or_default(Path::new("alpax.toml"));
+        // Start from global config or defaults
+        let mut cfg = dirs_home()
+            .map(|h| h.join(".alpax").join("alpax.toml"))
+            .and_then(|p| Self::from_file(&p).ok())
+            .unwrap_or_default();
+
+        // Project-local config overrides global fields if file exists
+        if let Ok(local) = Self::from_file(Path::new("alpax.toml")) {
+            cfg = local;
+        }
+
+        // Environment variables win over everything
         cfg.apply_env();
         cfg
     }

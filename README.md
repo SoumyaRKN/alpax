@@ -27,33 +27,55 @@ Alpax solves this with a native, single-binary Rust engine:
 
 ## 🚀 Quick Start Guide (For All Users)
 
-### 1-Click Universal Installer (Recommended)
+### Option A — Download Prebuilt Binary (Recommended)
 
-No manual path copying or environment configuration required. The installer sets up the `alpax` binary, downloads centralized models to `~/.alpax/models/`, and automatically detects and configures **Claude Desktop**, **Cursor**, and other MCP clients.
+No compiler required. Go to the [**GitHub Releases page**](https://github.com/sourceround/alpax/releases/latest) and download the archive for your platform, **or** use the one-liner below:
 
-#### On macOS & Linux:
-Run in your terminal:
+#### Linux (x86_64)
 ```bash
-bash scripts/install.sh
+curl -fsSL https://github.com/sourceround/alpax/releases/latest/download/alpax-latest-linux-x86_64.tar.gz | tar xz
+cd alpax-*-linux-x86_64
+bash install.sh
 ```
 
-#### On Windows:
-Open PowerShell and run:
-```powershell
-powershell -ExecutionPolicy Bypass -File scripts\install.ps1
+#### macOS — Apple Silicon (M1/M2/M3)
+```bash
+curl -fsSL https://github.com/sourceround/alpax/releases/latest/download/alpax-latest-macos-arm64.tar.gz | tar xz
+cd alpax-*-macos-arm64 && bash install.sh
 ```
+
+#### macOS — Intel
+```bash
+curl -fsSL https://github.com/sourceround/alpax/releases/latest/download/alpax-latest-macos-x86_64.tar.gz | tar xz
+cd alpax-*-macos-x86_64 && bash install.sh
+```
+
+#### Windows — PowerShell
+```powershell
+Invoke-WebRequest -Uri "https://github.com/sourceround/alpax/releases/latest/download/alpax-latest-windows-x86_64.zip" `
+    -OutFile alpax.zip
+Expand-Archive alpax.zip -DestinationPath alpax; cd alpax; .\install.ps1
+```
+
+> **What the installer does — automatically, step by step:**
+> 1. Copies the `alpax` binary to `~/.local/bin/` (Linux/macOS) or `%LOCALAPPDATA%\alpax\bin\` (Windows)
+> 2. Downloads the quantized AI embedding model (~22 MB) to `~/.alpax/models/`
+> 3. **Asks you a few setup questions** (chunk size, overlap) and writes your answers to `~/.alpax/alpax.toml`
+> 4. Automatically registers Alpax in **Claude Desktop** and **Cursor IDE** if installed
 
 ---
 
-### Manual Build / Developer Setup
-If you prefer building from source manually:
+### Option B — Build from Source (Developer Setup)
+
+If you prefer building from source:
 ```bash
 git clone https://github.com/sourceround/alpax.git
 cd alpax
 bash scripts/setup.sh --yes
 cargo build --release
+bash scripts/install.sh
 ```
-The compiled, standalone binary will be located at `target/release/alpax`.
+The compiled, standalone binary is at `target/release/alpax`.
 
 ---
 

@@ -3,20 +3,34 @@ set -euo pipefail
 
 # -----------------------------------------------------------------------------
 # Alpax (अल्प) Universal 1-Click Installer for Linux & macOS
-# Designed for non-technical users to set up Alpax with zero manual steps.
+# Installs binary, downloads AI models, writes global config, and wires up
+# Claude Desktop / Cursor automatically. Zero manual steps required.
 # -----------------------------------------------------------------------------
 
-echo "=========================================================="
-echo "          Alpax (अल्प) Universal 1-Click Installer"
-echo "=========================================================="
+BOLD="\033[1m"
+GREEN="\033[32m"
+CYAN="\033[36m"
+YELLOW="\033[33m"
+RESET="\033[0m"
+
+header() { echo -e "\n${BOLD}${CYAN}$*${RESET}"; }
+ok()     { echo -e "${GREEN}✓${RESET} $*"; }
+info()   { echo -e "${YELLOW}▶${RESET} $*"; }
+
+echo ""
+echo -e "${BOLD}=========================================================="
+echo -e "          Alpax (अल्प) Universal 1-Click Installer"
+echo -e "==========================================================${RESET}"
+echo ""
 
 HOME_DIR="${HOME:-~}"
 ALPAX_HOME="${HOME_DIR}/.alpax"
 MODELS_DIR="${ALPAX_HOME}/models"
 BIN_DIR="${HOME_DIR}/.local/bin"
+GLOBAL_CONFIG="${ALPAX_HOME}/alpax.toml"
+DB_DIR="${ALPAX_HOME}/db"
 
-mkdir -p "${MODELS_DIR}"
-mkdir -p "${BIN_DIR}"
+mkdir -p "${MODELS_DIR}" "${BIN_DIR}" "${DB_DIR}"
 
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" 2>/dev/null && pwd || echo "")"
 LOCAL_BINARY=""
@@ -24,59 +38,110 @@ if [ -n "${SCRIPT_DIR}" ] && [ -f "${SCRIPT_DIR}/../target/release/alpax" ]; the
     LOCAL_BINARY="${SCRIPT_DIR}/../target/release/alpax"
 fi
 
-# 1. Install Binary
+# ── 1. Install Binary ──────────────────────────────────────────────────────
+header "Step 1/4 — Installing Alpax binary"
+
 TARGET_BIN="${BIN_DIR}/alpax"
 if [ -n "${LOCAL_BINARY}" ] && [ -f "${LOCAL_BINARY}" ]; then
-    echo "📦 Installing alpax binary to ${TARGET_BIN}..."
+    info "Copying prebuilt binary to ${TARGET_BIN}..."
     cp -f "${LOCAL_BINARY}" "${TARGET_BIN}"
     chmod +x "${TARGET_BIN}"
 else
-    echo "⬇ Checking local alpax build..."
     if command -v cargo >/dev/null 2>&1; then
-        echo "Building optimized alpax binary via cargo..."
-        cargo install --path "${SCRIPT_DIR}/../crates/server" --root "${HOME_DIR}/.local"
+        info "Building from source via cargo (this takes ~2 minutes)..."
+        cargo install --path "${SCRIPT_DIR}/../crates/server" --root "${HOME_DIR}/.local" --quiet
     else
-        echo "Error: Neither prebuilt binary nor cargo was found." >&2
+        echo "Error: No prebuilt binary and cargo is not installed." >&2
         exit 1
     fi
 fi
-echo "✓ Binary installed at: ${TARGET_BIN}"
+ok "Binary installed at: ${TARGET_BIN}"
 
-# Ensure ~/.local/bin is in PATH for current session
 export PATH="${BIN_DIR}:${PATH}"
 
-# 2. Download Centralized Models to ~/.alpax/models
+# ── 2. Download Models ─────────────────────────────────────────────────────
+header "Step 2/4 — Downloading AI embedding models"
+
 MODEL_FILE="${MODELS_DIR}/all-MiniLM-L6-v2.onnx"
 TOKENIZER_FILE="${MODELS_DIR}/tokenizer.json"
 
 MODEL_URL="https://huggingface.co/Xenova/all-MiniLM-L6-v2/resolve/main/onnx/model_quantized.onnx"
 TOKENIZER_URL="https://huggingface.co/sentence-transformers/all-MiniLM-L6-v2/resolve/main/tokenizer.json"
 
-if [ -f "${MODEL_FILE}" ]; then
-    echo "✓ Model asset already exists at: ${MODEL_FILE}"
-else
-    echo "⬇ Downloading lightweight AI embedding model (~22MB)..."
-    if command -v curl >/dev/null 2>&1; then
-        curl -fL --progress-bar "${MODEL_URL}" -o "${MODEL_FILE}"
-    elif command -v wget >/dev/null 2>&1; then
-        wget -q --show-progress "${MODEL_URL}" -O "${MODEL_FILE}"
+_download() {
+    local url="$1" dest="$2" label="$3"
+    if [ -f "${dest}" ]; then
+        ok "${label} already exists — skipping download"
+        return
     fi
-    echo "✓ Model downloaded."
+    info "Downloading ${label}..."
+    if command -v curl >/dev/null 2>&1; then
+        curl -fL --progress-bar "${url}" -o "${dest}"
+    elif command -v wget >/dev/null 2>&1; then
+        wget -q --show-progress "${url}" -O "${dest}"
+    else
+        echo "Error: Neither curl nor wget found." >&2; exit 1
+    fi
+    ok "${label} downloaded."
+}
+
+_download "${MODEL_URL}"      "${MODEL_FILE}"      "Embedding model (~22MB)"
+_download "${TOKENIZER_URL}"  "${TOKENIZER_FILE}"  "Tokenizer (~450KB)"
+
+# ── 3. Interactive Config Setup ────────────────────────────────────────────
+header "Step 3/4 — Configuration"
+echo ""
+echo "We will now write your global Alpax configuration to:"
+echo "  ${GLOBAL_CONFIG}"
+echo "You can always edit this file later to change settings."
+echo ""
+
+# Helper: prompt with a default value
+_prompt() {
+    local question="$1" default="$2" var_name="$3"
+    local response
+    echo -ne "  ${question} [${default}]: "
+    read -r response
+    response="${response:-$default}"
+    printf -v "${var_name}" "%s" "${response}"
+}
+
+# Determine sensible default DB path (per-project vs global)
+DEFAULT_DB="${DB_DIR}"
+
+_prompt "Chunk size (lines per code snippet)" "50"  CFG_CHUNK_SIZE
+_prompt "Chunk overlap (lines shared between snippets)" "10" CFG_OVERLAP
+
+# Validate numeric inputs
+if ! [[ "${CFG_CHUNK_SIZE}" =~ ^[1-9][0-9]*$ ]]; then
+    echo "  Invalid chunk size '${CFG_CHUNK_SIZE}', using default 50." >&2
+    CFG_CHUNK_SIZE=50
+fi
+if ! [[ "${CFG_OVERLAP}" =~ ^[0-9]+$ ]]; then
+    echo "  Invalid overlap '${CFG_OVERLAP}', using default 10." >&2
+    CFG_OVERLAP=10
 fi
 
-if [ -f "${TOKENIZER_FILE}" ]; then
-    echo "✓ Tokenizer asset already exists at: ${TOKENIZER_FILE}"
-else
-    echo "⬇ Downloading tokenizer file (~450KB)..."
-    if command -v curl >/dev/null 2>&1; then
-        curl -fL --progress-bar "${TOKENIZER_URL}" -o "${TOKENIZER_FILE}"
-    elif command -v wget >/dev/null 2>&1; then
-        wget -q --show-progress "${TOKENIZER_URL}" -O "${TOKENIZER_FILE}"
-    fi
-    echo "✓ Tokenizer downloaded."
-fi
+# Write global config file
+cat > "${GLOBAL_CONFIG}" <<TOML
+# Alpax (अल्प) — Global Configuration
+# Generated by install.sh on $(date -u +"%Y-%m-%dT%H:%M:%SZ")
+# Edit this file to change global defaults.
+# A project-local alpax.toml in your repo root takes precedence.
 
-# 3. Auto-configure Claude Desktop if installed
+model      = "${MODEL_FILE}"
+tokenizer  = "${TOKENIZER_FILE}"
+db         = "${DEFAULT_DB}"
+chunk_size = ${CFG_CHUNK_SIZE}
+chunk_overlap = ${CFG_OVERLAP}
+TOML
+
+ok "Global config written to: ${GLOBAL_CONFIG}"
+
+# ── 4. Auto-configure MCP Clients ─────────────────────────────────────────
+header "Step 4/4 — Wiring up MCP clients"
+
+# Claude Desktop
 CLAUDE_CONFIG=""
 if [ "$(uname)" = "Darwin" ]; then
     CLAUDE_CONFIG="${HOME_DIR}/Library/Application Support/Claude/claude_desktop_config.json"
@@ -85,58 +150,83 @@ else
 fi
 
 if [ -d "$(dirname "${CLAUDE_CONFIG}")" ]; then
-    echo ""
-    echo "🔍 Detected Claude Desktop installation!"
-    
-    python3 -c "
-import json, os, sys
-
-config_path = '${CLAUDE_CONFIG}'
-alpax_bin = '${TARGET_BIN}'
-
-try:
-    if os.path.exists(config_path):
-        with open(config_path, 'r') as f:
-            data = json.load(f)
-    else:
-        data = {}
-        
-    servers = data.setdefault('mcpServers', {})
-    servers['alpax'] = {
-        'command': alpax_bin,
-        'args': []
-    }
-    
-    with open(config_path, 'w') as f:
-        json.dump(data, f, indent=2)
-    print('✓ Automatically added Alpax to Claude Desktop configuration at ' + config_path)
-except Exception as e:
-    print('Notice: Could not automatically update Claude Desktop config: ' + str(e))
-" 2>/dev/null || true
+    python3 - <<PYEOF 2>/dev/null || true
+import json, os
+path = '${CLAUDE_CONFIG}'
+data = {}
+if os.path.exists(path):
+    with open(path) as f:
+        data = json.load(f)
+data.setdefault('mcpServers', {})['alpax'] = {'command': '${TARGET_BIN}', 'args': []}
+with open(path, 'w') as f:
+    json.dump(data, f, indent=2)
+print('✓ Alpax registered in Claude Desktop config: ' + path)
+PYEOF
 fi
 
+# Cursor IDE (stores MCP config in ~/.cursor/mcp.json)
+CURSOR_MCP="${HOME_DIR}/.cursor/mcp.json"
+if [ -d "${HOME_DIR}/.cursor" ]; then
+    python3 - <<PYEOF 2>/dev/null || true
+import json, os
+path = '${CURSOR_MCP}'
+data = {}
+if os.path.exists(path):
+    with open(path) as f:
+        data = json.load(f)
+data.setdefault('mcpServers', {})['alpax'] = {'command': '${TARGET_BIN}', 'args': []}
+with open(path, 'w') as f:
+    json.dump(data, f, indent=2)
+print('✓ Alpax registered in Cursor IDE config: ' + path)
+PYEOF
+fi
+
+# Ensure ~/.local/bin is in the shell's PATH permanently
+SHELL_RC=""
+case "${SHELL:-/bin/sh}" in
+    */zsh)  SHELL_RC="${HOME_DIR}/.zshrc" ;;
+    */bash) SHELL_RC="${HOME_DIR}/.bashrc" ;;
+    */fish) SHELL_RC="${HOME_DIR}/.config/fish/config.fish" ;;
+    *)      SHELL_RC="${HOME_DIR}/.profile" ;;
+esac
+
+PATH_LINE='export PATH="$HOME/.local/bin:$PATH"'
+if [ -f "${SHELL_RC}" ] && ! grep -q ".local/bin" "${SHELL_RC}" 2>/dev/null; then
+    echo "" >> "${SHELL_RC}"
+    echo "# Added by Alpax installer" >> "${SHELL_RC}"
+    echo "${PATH_LINE}" >> "${SHELL_RC}"
+    ok "Added ~/.local/bin to PATH in ${SHELL_RC}"
+fi
+
+# ── Summary ────────────────────────────────────────────────────────────────
 echo ""
-echo "=========================================================="
-echo "🎉 Alpax installation completed successfully!"
-echo "=========================================================="
+echo -e "${BOLD}${GREEN}=========================================================="
+echo -e "  🎉  Alpax is ready to use!"
+echo -e "==========================================================${RESET}"
 echo ""
-echo "You can now use Alpax in your favorite AI editors:"
+echo "  Binary:       ${TARGET_BIN}"
+echo "  Models:       ${MODELS_DIR}"
+echo "  Config:       ${GLOBAL_CONFIG}"
+echo "  Vector DB:    ${DEFAULT_DB}  (auto-created per project)"
 echo ""
-echo "▶ For Cursor IDE:"
-echo "  1. Open Cursor Settings -> Features -> MCP Servers"
-echo "  2. Click '+ Add New MCP Server'"
-echo "  3. Name: alpax | Type: stdio | Command: ${TARGET_BIN}"
+echo -e "${BOLD}How to use:${RESET}"
 echo ""
-echo "▶ For Claude Desktop / Cline / Windsurf / Antigravity:"
-echo "  Add this to your MCP configuration:"
+echo "  In any AI editor that supports MCP (Claude Desktop, Cursor,"
+echo "  Cline, Windsurf, Antigravity) just ask your assistant:"
 echo ""
-echo "  \"mcpServers\": {"
-echo "    \"alpax\": {"
-echo "      \"command\": \"${TARGET_BIN}\""
-echo "    }"
-echo "  }"
+echo "    'Where is the authentication logic in this codebase?'"
 echo ""
-echo "▶ How to use in any project:"
-echo "  Just ask your assistant: 'Where is the auth logic in this codebase?'"
-echo "  Alpax indexes your files automatically and returns squeezed context!"
-echo "=========================================================="
+echo "  Alpax automatically indexes your project on the first query"
+echo "  and keeps it in sync with every subsequent request."
+echo ""
+echo -e "${BOLD}Manual MCP config (if needed):${RESET}"
+echo ""
+echo '  "mcpServers": {'
+echo '    "alpax": { "command": "'"${TARGET_BIN}"'" }'
+echo '  }'
+echo ""
+if [ -n "${SHELL_RC}" ]; then
+    echo "  Restart your terminal or run: source ${SHELL_RC}"
+    echo "  to make the 'alpax' command available in PATH."
+    echo ""
+fi

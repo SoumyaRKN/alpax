@@ -1,0 +1,184 @@
+name: Release
+
+on:
+  push:
+    tags:
+      - "v*.*.*"
+
+permissions:
+  contents: write
+
+env:
+  CARGO_TERM_COLOR: always
+  RUST_BACKTRACE: 1
+
+jobs:
+  build:
+    name: Build ${{ matrix.name }}
+    runs-on: ${{ matrix.os }}
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          # ── Linux x86_64 ────────────────────────────────────────────────
+          - name: linux-x86_64
+            os: ubuntu-22.04
+            target: x86_64-unknown-linux-gnu
+            archive_ext: tar.gz
+            artifact_name: alpax
+
+          # ── macOS arm64 (Apple Silicon) ─────────────────────────────────
+          - name: macos-arm64
+            os: macos-14
+            target: aarch64-apple-darwin
+            archive_ext: tar.gz
+            artifact_name: alpax
+
+          # ── macOS x86_64 (Intel) ────────────────────────────────────────
+          - name: macos-x86_64
+            os: macos-13
+            target: x86_64-apple-darwin
+            archive_ext: tar.gz
+            artifact_name: alpax
+
+          # ── Windows x86_64 ──────────────────────────────────────────────
+          - name: windows-x86_64
+            os: windows-2022
+            target: x86_64-pc-windows-msvc
+            archive_ext: zip
+            artifact_name: alpax.exe
+
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+
+      - name: Install Rust stable toolchain
+        uses: dtolnay/rust-toolchain@stable
+        with:
+          targets: ${{ matrix.target }}
+
+      # ── Linux: install protoc (required by lance-encoding build script) ─
+      - name: Install protoc (Linux)
+        if: runner.os == 'Linux'
+        run: |
+          sudo apt-get update -y
+          sudo apt-get install -y protobuf-compiler
+
+      # ── macOS: install protoc ───────────────────────────────────────────
+      - name: Install protoc (macOS)
+        if: runner.os == 'macOS'
+        run: brew install protobuf
+
+      # ── Windows: install protoc ─────────────────────────────────────────
+      - name: Install protoc (Windows)
+        if: runner.os == 'Windows'
+        run: choco install protoc --no-progress
+
+      # ── Cache Cargo registry + build artefacts ──────────────────────────
+      - name: Cache Cargo
+        uses: Swatinem/rust-cache@v2
+        with:
+          key: ${{ matrix.target }}
+
+      # ── Apply lance recursion-limit patch ───────────────────────────────
+      - name: Patch lance recursion limit (Linux/macOS)
+        if: runner.os != 'Windows'
+        run: |
+          LANCE_LIB=$(find ~/.cargo/registry/src -name "lib.rs" -path "*/lance-*/src/lib.rs" 2>/dev/null | head -1 || true)
+          if [ -n "$LANCE_LIB" ] && ! grep -q "recursion_limit" "$LANCE_LIB"; then
+            sed -i.bak '1s/^/#![recursion_limit = "512"]\n/' "$LANCE_LIB"
+          fi
+        shell: bash
+
+      - name: Patch lance recursion limit (Windows)
+        if: runner.os == 'Windows'
+        shell: pwsh
+        run: |
+          $lanceLib = Get-ChildItem -Recurse -Path "$env:USERPROFILE\.cargo\registry\src" -Filter "lib.rs" |
+            Where-Object { $_.FullName -match 'lance-\d' } | Select-Object -First 1
+          if ($lanceLib -and -not (Select-String -Path $lanceLib.FullName -Pattern "recursion_limit" -Quiet)) {
+            $content = Get-Content $lanceLib.FullName -Raw
+            Set-Content $lanceLib.FullName -Value ('#![recursion_limit = "512"]' + "`n" + $content)
+          }
+
+      # ── Build release binary ─────────────────────────────────────────────
+      - name: Build release binary
+        run: cargo build --release --target ${{ matrix.target }}
+        env:
+          # Force protoc discovery on all platforms
+          PROTOC: protoc
+
+      # ── Package: Linux / macOS → .tar.gz ───────────────────────────────
+      - name: Package archive (Linux/macOS)
+        if: runner.os != 'Windows'
+        run: |
+          STAGING="alpax-${{ github.ref_name }}-${{ matrix.name }}"
+          mkdir -p "${STAGING}"
+          cp "target/${{ matrix.target }}/release/alpax" "${STAGING}/"
+          cp scripts/install.sh "${STAGING}/"
+          cp scripts/setup.sh "${STAGING}/"
+          cp README.md "${STAGING}/"
+          chmod +x "${STAGING}/install.sh" "${STAGING}/setup.sh"
+          tar czf "${STAGING}.tar.gz" "${STAGING}"
+          echo "ARCHIVE=${STAGING}.tar.gz" >> "$GITHUB_ENV"
+        shell: bash
+
+      # ── Package: Windows → .zip ─────────────────────────────────────────
+      - name: Package archive (Windows)
+        if: runner.os == 'Windows'
+        shell: pwsh
+        run: |
+          $staging = "alpax-${{ github.ref_name }}-${{ matrix.name }}"
+          New-Item -ItemType Directory -Path $staging
+          Copy-Item "target\${{ matrix.target }}\release\alpax.exe" "$staging\"
+          Copy-Item "scripts\install.ps1" "$staging\"
+          Copy-Item "scripts\setup.sh" "$staging\" -ErrorAction SilentlyContinue
+          Copy-Item "README.md" "$staging\"
+          Compress-Archive -Path "$staging\*" -DestinationPath "$staging.zip"
+          echo "ARCHIVE=$staging.zip" | Out-File -FilePath $env:GITHUB_ENV -Append
+
+      # ── Compute SHA256 checksum ──────────────────────────────────────────
+      - name: Compute checksum (Linux/macOS)
+        if: runner.os != 'Windows'
+        run: sha256sum "${{ env.ARCHIVE }}" > "${{ env.ARCHIVE }}.sha256"
+        shell: bash
+
+      - name: Compute checksum (Windows)
+        if: runner.os == 'Windows'
+        shell: pwsh
+        run: |
+          $hash = (Get-FileHash "${{ env.ARCHIVE }}" -Algorithm SHA256).Hash.ToLower()
+          "$hash  ${{ env.ARCHIVE }}" | Out-File -FilePath "${{ env.ARCHIVE }}.sha256"
+
+      # ── Upload to GitHub Release ─────────────────────────────────────────
+      - name: Upload release assets
+        uses: softprops/action-gh-release@v2
+        with:
+          fail_on_unmatched_files: true
+          files: |
+            ${{ env.ARCHIVE }}
+            ${{ env.ARCHIVE }}.sha256
+          body: |
+            ## Alpax ${{ github.ref_name }}
+
+            ### Quick Install
+
+            **Linux / macOS**
+            ```bash
+            curl -fsSL https://github.com/${{ github.repository }}/releases/download/${{ github.ref_name }}/alpax-${{ github.ref_name }}-linux-x86_64.tar.gz | tar xz
+            cd alpax-${{ github.ref_name }}-linux-x86_64
+            bash install.sh
+            ```
+
+            **Windows (PowerShell)**
+            ```powershell
+            Invoke-WebRequest -Uri "https://github.com/${{ github.repository }}/releases/download/${{ github.ref_name }}/alpax-${{ github.ref_name }}-windows-x86_64.zip" -OutFile alpax.zip
+            Expand-Archive alpax.zip -DestinationPath alpax
+            cd alpax
+            .\install.ps1
+            ```
+
+            ### Checksums
+            Verify your download against the `.sha256` files included in this release.
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}

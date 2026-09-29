@@ -1,72 +1,169 @@
 # Alpax (अल्प) Universal 1-Click Installer for Windows (PowerShell)
 # Run with: powershell -ExecutionPolicy Bypass -File scripts\install.ps1
+#
+# This script:
+#   1. Installs the Alpax binary to %LOCALAPPDATA%\alpax\bin\
+#   2. Downloads AI embedding models to %LOCALAPPDATA%\alpax\models\
+#   3. Interactively collects config and writes %LOCALAPPDATA%\alpax\alpax.toml
+#   4. Auto-configures Claude Desktop and Cursor IDE
+#   5. Adds alpax to the user's PATH permanently
 
 $ErrorActionPreference = "Stop"
 
+Write-Host ""
 Write-Host "==========================================================" -ForegroundColor Cyan
 Write-Host "          Alpax (अल्प) Universal Windows Installer" -ForegroundColor Cyan
 Write-Host "==========================================================" -ForegroundColor Cyan
+Write-Host ""
 
-$AppDir = Join-Path $env:LOCALAPPDATA "alpax"
-$ModelsDir = Join-Path $AppDir "models"
-$BinDir = Join-Path $AppDir "bin"
+$AppDir     = Join-Path $env:LOCALAPPDATA "alpax"
+$ModelsDir  = Join-Path $AppDir "models"
+$BinDir     = Join-Path $AppDir "bin"
+$DbDir      = Join-Path $AppDir "db"
+$GlobalConf = Join-Path $AppDir "alpax.toml"
 
 New-Item -ItemType Directory -Force -Path $ModelsDir | Out-Null
-New-Item -ItemType Directory -Force -Path $BinDir | Out-Null
+New-Item -ItemType Directory -Force -Path $BinDir    | Out-Null
+New-Item -ItemType Directory -Force -Path $DbDir     | Out-Null
 
-$ScriptDir = Split-Path -Parent $MyInvocation.MyCommand.Path
-$LocalBinary = Join-Path (Split-Path -Parent $ScriptDir) "target\release\alpax.exe"
-$TargetBin = Join-Path $BinDir "alpax.exe"
+$ScriptDir   = Split-Path -Parent $MyInvocation.MyCommand.Path
+$RepoRoot    = Split-Path -Parent $ScriptDir
+$LocalBinary = Join-Path $RepoRoot "target\release\alpax.exe"
+$TargetBin   = Join-Path $BinDir "alpax.exe"
+
+# ── Step 1: Install Binary ─────────────────────────────────────────────────
+Write-Host ""
+Write-Host "Step 1/4 — Installing Alpax binary" -ForegroundColor Yellow
 
 if (Test-Path $LocalBinary) {
-    Write-Host "📦 Installing alpax binary to $TargetBin..." -ForegroundColor Green
+    Write-Host "  Copying prebuilt binary to $TargetBin..." -ForegroundColor Gray
     Copy-Item -Path $LocalBinary -Destination $TargetBin -Force
 } else {
-    Write-Host "Building release binary via cargo..." -ForegroundColor Yellow
-    cargo build --release
-    Copy-Item -Path $LocalBinary -Destination $TargetBin -Force
+    if (Get-Command cargo -ErrorAction SilentlyContinue) {
+        Write-Host "  Building from source via cargo (takes ~2 minutes)..." -ForegroundColor Gray
+        Push-Location $RepoRoot
+        cargo build --release --quiet
+        Pop-Location
+        Copy-Item -Path $LocalBinary -Destination $TargetBin -Force
+    } else {
+        Write-Error "No prebuilt binary found and cargo is not installed."
+    }
 }
+Write-Host "✓ Binary installed at: $TargetBin" -ForegroundColor Green
 
-$ModelFile = Join-Path $ModelsDir "all-MiniLM-L6-v2.onnx"
+# ── Step 2: Download Models ────────────────────────────────────────────────
+Write-Host ""
+Write-Host "Step 2/4 — Downloading AI embedding models" -ForegroundColor Yellow
+
+$ModelFile     = Join-Path $ModelsDir "all-MiniLM-L6-v2.onnx"
 $TokenizerFile = Join-Path $ModelsDir "tokenizer.json"
+$ModelUrl      = "https://huggingface.co/Xenova/all-MiniLM-L6-v2/resolve/main/onnx/model_quantized.onnx"
+$TokenizerUrl  = "https://huggingface.co/sentence-transformers/all-MiniLM-L6-v2/resolve/main/tokenizer.json"
 
-$ModelUrl = "https://huggingface.co/Xenova/all-MiniLM-L6-v2/resolve/main/onnx/model_quantized.onnx"
-$TokenizerUrl = "https://huggingface.co/sentence-transformers/all-MiniLM-L6-v2/resolve/main/tokenizer.json"
-
-if (-not (Test-Path $ModelFile)) {
-    Write-Host "⬇ Downloading lightweight AI model (~22MB)..." -ForegroundColor Yellow
-    Invoke-WebRequest -Uri $ModelUrl -OutFile $ModelFile
+function Download-Asset {
+    param([string]$Url, [string]$Dest, [string]$Label)
+    if (Test-Path $Dest) {
+        Write-Host "✓ $Label already exists — skipping" -ForegroundColor Green
+        return
+    }
+    Write-Host "  Downloading $Label..." -ForegroundColor Gray
+    Invoke-WebRequest -Uri $Url -OutFile $Dest -UseBasicParsing
+    Write-Host "✓ $Label downloaded." -ForegroundColor Green
 }
 
-if (-not (Test-Path $TokenizerFile)) {
-    Write-Host "⬇ Downloading tokenizer file (~450KB)..." -ForegroundColor Yellow
-    Invoke-WebRequest -Uri $TokenizerUrl -OutFile $TokenizerFile
+Download-Asset -Url $ModelUrl     -Dest $ModelFile     -Label "Embedding model (~22MB)"
+Download-Asset -Url $TokenizerUrl -Dest $TokenizerFile -Label "Tokenizer (~450KB)"
+
+# ── Step 3: Interactive Config ─────────────────────────────────────────────
+Write-Host ""
+Write-Host "Step 3/4 — Configuration" -ForegroundColor Yellow
+Write-Host ""
+Write-Host "  Global config will be written to: $GlobalConf"
+Write-Host "  (You can edit this file at any time to change settings.)"
+Write-Host ""
+
+function Prompt-With-Default {
+    param([string]$Question, [string]$Default)
+    $answer = Read-Host "  $Question [$Default]"
+    if ([string]::IsNullOrWhiteSpace($answer)) { return $Default }
+    return $answer
 }
 
-# Auto-configure Claude Desktop on Windows
-$ClaudeConfig = Join-Path $env:APPDATA "Claude\claude_desktop_config.json"
-if (Test-Path (Split-Path -Parent $ClaudeConfig)) {
+$ChunkSize = Prompt-With-Default -Question "Chunk size (lines per code snippet)" -Default "50"
+$Overlap   = Prompt-With-Default -Question "Chunk overlap (shared lines between snippets)" -Default "10"
+
+# Validate
+if (-not ($ChunkSize -match '^\d+$') -or [int]$ChunkSize -lt 1) { $ChunkSize = "50" }
+if (-not ($Overlap   -match '^\d+$')) { $Overlap = "10" }
+
+$Timestamp = (Get-Date).ToUniversalTime().ToString("yyyy-MM-ddTHH:mm:ssZ")
+
+@"
+# Alpax (अल्प) — Global Configuration
+# Generated by install.ps1 on $Timestamp
+# Edit this file to change global defaults.
+# A project-local alpax.toml in your repo root takes precedence.
+
+model         = "$($ModelFile.Replace('\','/'))"
+tokenizer     = "$($TokenizerFile.Replace('\','/'))"
+db            = "$($DbDir.Replace('\','/'))"
+chunk_size    = $ChunkSize
+chunk_overlap = $Overlap
+"@ | Set-Content -Path $GlobalConf -Encoding UTF8
+
+Write-Host "✓ Global config written to: $GlobalConf" -ForegroundColor Green
+
+# ── Step 4: Auto-configure MCP Clients ────────────────────────────────────
+Write-Host ""
+Write-Host "Step 4/4 — Wiring up MCP clients" -ForegroundColor Yellow
+
+function Upsert-McpServer {
+    param([string]$ConfigPath, [string]$Label)
+    $dir = Split-Path -Parent $ConfigPath
+    if (-not (Test-Path $dir)) { return }
     try {
-        $ConfigJson = @{}
-        if (Test-Path $ClaudeConfig) {
-            $ConfigJson = Get-Content $ClaudeConfig -Raw | ConvertFrom-Json -AsHashtable
+        $data = @{ mcpServers = @{} }
+        if (Test-Path $ConfigPath) {
+            $raw = Get-Content $ConfigPath -Raw -Encoding UTF8
+            $data = $raw | ConvertFrom-Json -AsHashtable
+            if (-not $data.ContainsKey("mcpServers")) { $data["mcpServers"] = @{} }
         }
-        if (-not $ConfigJson.ContainsKey("mcpServers")) {
-            $ConfigJson["mcpServers"] = @{}
-        }
-        $ConfigJson["mcpServers"]["alpax"] = @{
-            command = $TargetBin
-            args = @()
-        }
-        $ConfigJson | ConvertTo-Json -Depth 10 | Set-Content $ClaudeConfig -Encoding UTF8
-        Write-Host "✓ Automatically configured Claude Desktop at $ClaudeConfig" -ForegroundColor Green
+        $data["mcpServers"]["alpax"] = @{ command = $TargetBin; args = @() }
+        $data | ConvertTo-Json -Depth 10 | Set-Content -Path $ConfigPath -Encoding UTF8
+        Write-Host "✓ Alpax registered in $Label`: $ConfigPath" -ForegroundColor Green
     } catch {
-        Write-Host "Notice: Could not automatically update Claude Desktop config: $_" -ForegroundColor Yellow
+        Write-Host "  Notice: Could not update $Label config: $_" -ForegroundColor Yellow
     }
 }
 
+Upsert-McpServer -ConfigPath (Join-Path $env:APPDATA "Claude\claude_desktop_config.json") -Label "Claude Desktop"
+Upsert-McpServer -ConfigPath (Join-Path $env:APPDATA ".cursor\mcp.json")                  -Label "Cursor IDE"
+
+# Add BinDir to user PATH permanently
+$CurrentPath = [Environment]::GetEnvironmentVariable("PATH", "User")
+if ($CurrentPath -notlike "*$BinDir*") {
+    [Environment]::SetEnvironmentVariable("PATH", "$BinDir;$CurrentPath", "User")
+    Write-Host "✓ Added $BinDir to your PATH (restart terminal to apply)" -ForegroundColor Green
+}
+
+# ── Summary ────────────────────────────────────────────────────────────────
 Write-Host ""
 Write-Host "==========================================================" -ForegroundColor Cyan
-Write-Host "🎉 Alpax installation completed successfully!" -ForegroundColor Green
-Write-Host "Binary location: $TargetBin" -ForegroundColor White
+Write-Host "  Alpax is ready to use!" -ForegroundColor Green
 Write-Host "==========================================================" -ForegroundColor Cyan
+Write-Host ""
+Write-Host "  Binary:     $TargetBin"
+Write-Host "  Models:     $ModelsDir"
+Write-Host "  Config:     $GlobalConf"
+Write-Host "  Vector DB:  $DbDir  (auto-created per project)"
+Write-Host ""
+Write-Host "How to use:" -ForegroundColor Yellow
+Write-Host "  Open Claude Desktop, Cursor, or any MCP-compatible AI editor."
+Write-Host "  Ask: 'Where is the authentication logic in this codebase?'"
+Write-Host "  Alpax indexes your project automatically on the first query."
+Write-Host ""
+Write-Host "Manual MCP config (if needed):" -ForegroundColor Yellow
+Write-Host "  `"mcpServers`": {"
+Write-Host "    `"alpax`": { `"command`": `"$TargetBin`" }"
+Write-Host "  }"
+Write-Host ""

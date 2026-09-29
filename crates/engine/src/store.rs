@@ -119,6 +119,24 @@ impl Store {
         Ok(())
     }
 
+    pub async fn remove_file(&self, file_path: &str) -> Result<()> {
+        if let Some(table) = &self.table {
+            let escaped = file_path.replace('\'', "''");
+            let predicate = format!("file = '{escaped}'");
+            let _ = table.delete(&predicate).await;
+        }
+        Ok(())
+    }
+
+    pub async fn clear(&mut self) -> Result<()> {
+        let table_names = self.conn.table_names().execute().await?;
+        if table_names.contains(&TABLE_NAME.to_string()) {
+            self.conn.drop_table(TABLE_NAME).await?;
+            self.table = None;
+        }
+        Ok(())
+    }
+
     pub async fn find(&self, query: &[f32], limit: usize) -> Result<Vec<Hit>> {
         let table = match &self.table {
             Some(t) => t,
