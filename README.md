@@ -122,7 +122,7 @@ Replace `/path/to/alpax` with the actual path printed at the end of the installe
 | Cursor IDE | `~/.cursor/mcp.json` |
 | Windsurf IDE | `~/.codeium/windsurf/mcp_config.json` |
 | VS Code / Continue | `~/.continue/config.json` |
-| Antigravity CLI | `~/.gemini/antigravity-cli/customizations/mcp-servers/alpax/config.json` |
+| Antigravity CLI (`agy`) | `~/.gemini/config/mcp_config.json` |
 
 For **Zed**, add to `~/.config/zed/settings.json` under `"context_servers"`:
 ```json

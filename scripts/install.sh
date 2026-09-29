@@ -528,34 +528,15 @@ fi
 
 # ──────────────────────────────────────────────────────────────────────────────
 # 9. ANTIGRAVITY CLI  (Google DeepMind's Antigravity)
+#    Global MCP config: ~/.gemini/config/mcp_config.json
+#    Schema: { "mcpServers": { "<name>": { "command": "...", "args": [], "env": {} } } }
+#    Ref: ~/.gemini/antigravity-cli/builtin/skills/agy-customizations/docs/mcp_servers.md
 # ──────────────────────────────────────────────────────────────────────────────
-AGY_MCP_DIR="${HOME}/.gemini/antigravity-cli/customizations/mcp-servers"
-AGY_MCP_CONFIG="${AGY_MCP_DIR}/alpax/config.json"
-if command -v agy >/dev/null 2>&1 || [ -d "${HOME}/.gemini/antigravity-cli" ]; then
-    log_info "Found: ${BOLD}Antigravity CLI (agy)${RESET}"
-    AGENTS_FOUND+=("Antigravity CLI")
-    if confirm "  Configure Antigravity CLI to use Alpax?"; then
-        mkdir -p "${AGY_MCP_DIR}/alpax"
-        python3 - <<PYEOF
-import json, os
-cfg = {
-    "name": "alpax",
-    "description": "Alpax — local-first semantic code search and context squeezing",
-    "command": "${ALPAX_BIN}",
-    "args": [],
-    "env": {}
-}
-with open('${AGY_MCP_CONFIG}', 'w', encoding='utf-8') as f:
-    json.dump(cfg, f, indent=2, ensure_ascii=False)
-    f.write('\n')
-print('ok')
-PYEOF
-        log_ok "Antigravity CLI configured → ${DIM}${AGY_MCP_CONFIG}${RESET}"
-        AGENTS_CONFIGURED+=("Antigravity CLI")
-    else
-        log_info "Skipped Antigravity CLI"
-        AGENTS_SKIPPED+=("Antigravity CLI")
-    fi
+AGY_CONFIG_DIR="${HOME}/.gemini/config"
+AGY_MCP_CONFIG="${AGY_CONFIG_DIR}/mcp_config.json"
+if command -v agy >/dev/null 2>&1 || [ -d "${HOME}/.gemini/config" ] || [ -d "${HOME}/.gemini/antigravity-cli" ]; then
+    _try_configure "Antigravity CLI (agy)" \
+        "${AGY_MCP_CONFIG}" "mcpServers" "alpax" "${ALPAX_BIN}"
 fi
 
 # ──────────────────────────────────────────────────────────────────────────────

@@ -349,29 +349,14 @@ if ((Get-Command zed -ErrorAction SilentlyContinue) -or (Test-Path $ZedApp) -or 
 }
 
 # ── 9. Antigravity CLI ────────────────────────────────────────────────────────
-$AgyDir    = Join-Path $env:USERPROFILE ".gemini\antigravity-cli"
-$AgyMcpDir = Join-Path $AgyDir "customizations\mcp-servers\alpax"
-$AgyConf   = Join-Path $AgyMcpDir "config.json"
-if ((Get-Command agy -ErrorAction SilentlyContinue) -or (Test-Path $AgyDir)) {
-    Write-Info "Found: Antigravity CLI (agy)"
-    $AgentsFound.Add("Antigravity CLI")
-    if (Confirm-Action "  Configure Antigravity CLI to use Alpax?") {
-        try {
-            New-Item -ItemType Directory -Force -Path $AgyMcpDir | Out-Null
-            @{
-                name        = "alpax"
-                description = "Alpax - local-first semantic code search and context squeezing"
-                command     = $TargetBin
-                args        = @()
-                env         = @{}
-            } | ConvertTo-Json -Depth 5 | Set-Content -Path $AgyConf -Encoding UTF8
-            Write-Ok "Antigravity CLI configured → $AgyConf"
-            $AgentsConfigured.Add("Antigravity CLI")
-        } catch {
-            Write-Warn "Antigravity CLI config update failed: $_"
-            $AgentsSkipped.Add("Antigravity CLI")
-        }
-    } else { $AgentsSkipped.Add("Antigravity CLI") }
+# Global MCP config: ~/.gemini/config/mcp_config.json
+# Schema: { "mcpServers": { "<name>": { "command": "...", "args": [], "env": {} } } }
+# Ref: ~/.gemini/antigravity-cli/builtin/skills/agy-customizations/docs/mcp_servers.md
+$AgyConfigDir = Join-Path $env:USERPROFILE ".gemini\config"
+$AgyMcpConf   = Join-Path $AgyConfigDir "mcp_config.json"
+$AgyCliDir    = Join-Path $env:USERPROFILE ".gemini\antigravity-cli"
+if ((Get-Command agy -ErrorAction SilentlyContinue) -or (Test-Path $AgyConfigDir) -or (Test-Path $AgyCliDir)) {
+    Try-Configure "Antigravity CLI (agy)" $AgyMcpConf "mcpServers" "alpax" $TargetBin
 }
 
 if ($AgentsFound.Count -eq 0) {
