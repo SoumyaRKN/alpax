@@ -25,168 +25,118 @@ Alpax solves this with a native, single-binary Rust engine:
 
 ---
 
-## 🚀 Quick Start Guide (For All Users)
+## 🚀 Quick Start — Install in 30 Seconds
 
-### Option A — Download Prebuilt Binary (Recommended)
+### Linux & macOS
 
-No compiler required. Go to the [**GitHub Releases page**](https://github.com/sourceround/alpax/releases/latest) and download the archive for your platform, **or** use the one-liner below:
+Paste this single command in your terminal:
 
-#### Linux (x86_64)
 ```bash
-curl -fsSL https://github.com/sourceround/alpax/releases/latest/download/alpax-latest-linux-x86_64.tar.gz | tar xz
-cd alpax-*-linux-x86_64
-bash install.sh
+curl -fsSL https://raw.githubusercontent.com/sourceround/alpax/main/scripts/install.sh | bash
 ```
 
-#### macOS — Apple Silicon (M1/M2/M3)
-```bash
-curl -fsSL https://github.com/sourceround/alpax/releases/latest/download/alpax-latest-macos-arm64.tar.gz | tar xz
-cd alpax-*-macos-arm64 && bash install.sh
-```
+### Windows
 
-#### macOS — Intel
-```bash
-curl -fsSL https://github.com/sourceround/alpax/releases/latest/download/alpax-latest-macos-x86_64.tar.gz | tar xz
-cd alpax-*-macos-x86_64 && bash install.sh
-```
+Paste this in **PowerShell**:
 
-#### Windows — PowerShell
 ```powershell
-Invoke-WebRequest -Uri "https://github.com/sourceround/alpax/releases/latest/download/alpax-latest-windows-x86_64.zip" `
-    -OutFile alpax.zip
-Expand-Archive alpax.zip -DestinationPath alpax; cd alpax; .\install.ps1
+irm https://raw.githubusercontent.com/sourceround/alpax/main/scripts/install.ps1 | iex
 ```
 
-> **What the installer does — automatically, step by step:**
-> 1. Copies the `alpax` binary to `~/.local/bin/` (Linux/macOS) or `%LOCALAPPDATA%\alpax\bin\` (Windows)
-> 2. Downloads the quantized AI embedding model (~22 MB) to `~/.alpax/models/`
-> 3. **Asks you a few setup questions** (chunk size, overlap) and writes your answers to `~/.alpax/alpax.toml`
-> 4. Automatically registers Alpax in **Claude Desktop** and **Cursor IDE** if installed
+> **That's it.** The installer will guide you through the rest interactively.
 
 ---
 
-### Option B — Build from Source (Developer Setup)
+### What happens during installation
 
-If you prefer building from source:
+| Step | What the installer does |
+|------|------------------------|
+| **1 — Detect platform** | Identifies your OS and CPU architecture automatically |
+| **2 — Download binary** | Fetches the correct prebuilt `alpax` binary from [GitHub Releases](https://github.com/sourceround/alpax/releases/latest) |
+| **3 — Configure** | Asks a few optional questions with sensible defaults (just press **Enter** to skip) |
+| **4 — Download models** | Downloads the quantized AI embedding model (~22 MB) and tokenizer once |
+| **5 — Wire up agents** | Scans for every AI coding agent installed on your system and safely adds Alpax to each one's MCP config — without touching your other settings |
+| **6 — PATH** | Adds the `alpax` binary to your shell's PATH permanently |
+
+After installation, **restart your AI agent** and start asking questions about your code. No other steps required.
+
+---
+
+### Supported AI Agents (auto-detected)
+
+The installer detects and configures **all** of the following if they are present:
+
+| Agent | Detection method |
+|-------|-----------------|
+| **Claude Desktop** | App directory / config file |
+| **Claude Code CLI** (`claude`) | Command in PATH + `~/.claude.json` |
+| **Cursor IDE** | `~/.cursor/` directory / app bundle |
+| **Windsurf IDE** | `~/.codeium/windsurf/` directory / app bundle |
+| **VS Code + Continue** | `~/.continue/` directory |
+| **VS Code + Cline** | VS Code global storage for `saoudrizwan.claude-dev` |
+| **VS Code + Roo Code** | VS Code global storage for `rooveterinaryinc.roo-cline` |
+| **Zed Editor** | App bundle / `zed` command in PATH |
+| **Antigravity CLI** (`agy`) | `~/.gemini/antigravity-cli/` directory |
+| **Neovim + mcphub.nvim** | `~/.config/mcphub/` directory |
+
+Each agent's existing config is **updated, not replaced** — all your other MCP servers and settings are preserved.
+
+---
+
+### Build from Source (developers only)
+
 ```bash
 git clone https://github.com/sourceround/alpax.git
 cd alpax
-bash scripts/setup.sh --yes
+bash scripts/setup.sh --yes    # downloads models + patches dependencies
 cargo build --release
-bash scripts/install.sh
+bash scripts/install.sh        # runs the standard installer using the local binary
 ```
-The compiled, standalone binary is at `target/release/alpax`.
 
----
+## 🔌 Manual MCP Configuration (Fallback)
 
-## 🔌 Connecting to Your AI Agent (MCP Integration)
+The installer handles this automatically. Only use this section if you need to configure an agent manually or if auto-detection didn't pick up your agent.
 
-Alpax communicates over standard input/output (`stdio`) via JSON-RPC 2.0.
-
-### 1. Claude Desktop
-
-Add Alpax to your `claude_desktop_config.json`:
-- **macOS**: `~/Library/Application Support/Claude/claude_desktop_config.json`
-- **Linux**: `~/.config/Claude/claude_desktop_config.json`
-- **Windows**: `%APPDATA%\Claude\claude_desktop_config.json`
+Add the following to your agent's MCP configuration file:
 
 ```json
 {
   "mcpServers": {
     "alpax": {
-      "command": "/ABSOLUTE/PATH/TO/alpax/target/release/alpax",
-      "args": [],
-      "env": {
-        "ALPAX_MODEL_PATH": "/ABSOLUTE/PATH/TO/alpax/models/all-MiniLM-L6-v2.onnx",
-        "ALPAX_TOKENIZER_PATH": "/ABSOLUTE/PATH/TO/alpax/models/tokenizer.json",
-        "ALPAX_DB_PATH": "/ABSOLUTE/PATH/TO/alpax/.alpax_vector_db"
-      }
+      "command": "/path/to/alpax"
     }
   }
 }
 ```
 
-> **Note**: Always use absolute paths in the configuration.
+Replace `/path/to/alpax` with the actual path printed at the end of the installer (e.g. `~/.local/bin/alpax` on Linux/macOS, or `%LOCALAPPDATA%\alpax\bin\alpax.exe` on Windows).
 
----
+### Config file locations by agent
 
-### 2. Cursor IDE
+| Agent | Config file path |
+|-------|-----------------|
+| Claude Desktop (macOS) | `~/Library/Application Support/Claude/claude_desktop_config.json` |
+| Claude Desktop (Linux) | `~/.config/Claude/claude_desktop_config.json` |
+| Claude Desktop (Windows) | `%APPDATA%\Claude\claude_desktop_config.json` |
+| Claude Code CLI | `~/.claude.json` |
+| Cursor IDE | `~/.cursor/mcp.json` |
+| Windsurf IDE | `~/.codeium/windsurf/mcp_config.json` |
+| VS Code / Continue | `~/.continue/config.json` |
+| Antigravity CLI | `~/.gemini/antigravity-cli/customizations/mcp-servers/alpax/config.json` |
 
-1. Open **Cursor Settings** (`Ctrl+,` or `Cmd+,`).
-2. Navigate to **Features** -> **MCP Servers**.
-3. Click **+ Add New MCP Server**.
-4. Fill in the details:
-   - **Name**: `alpax`
-   - **Type**: `stdio`
-   - **Command**: `/ABSOLUTE/PATH/TO/alpax/target/release/alpax`
-
----
-
-### 3. Antigravity / Cline / Roo Code
-
-Add the server to your settings file:
-
+For **Zed**, add to `~/.config/zed/settings.json` under `"context_servers"`:
 ```json
 {
-  "mcpServers": {
+  "context_servers": {
     "alpax": {
-      "command": "/ABSOLUTE/PATH/TO/alpax/target/release/alpax",
-      "args": []
+      "command": { "path": "/path/to/alpax", "args": [] },
+      "settings": {}
     }
   }
 }
 ```
 
----
-
-## 💡 How to Use with Your AI Agent
-
-Once connected, your AI agent automatically gains access to Alpax's semantic tools:
-
-### Zero-Friction Out-of-the-Box Operation
-**You don't even have to tell Alpax to index!** When you ask your first question about any project, Alpax detects that the index is new and automatically indexes the codebase before answering.
-
-### Natural Language Semantic Search
-Ask your assistant questions about any codebase in plain English:
-
-> *"Where is JWT authentication and token verification implemented?"*  
-> *"Find where vector mean-pooling and L2 normalization occur."*  
-> *"Show me how errors are mapped to JSON-RPC codes."*
-
-### Explicit Incremental Re-Indexing (Optional)
-If you made significant changes and want to trigger a manual refresh:
-
-> *"Please re-index this workspace using Alpax."*
-
-Alpax uses BLAKE3 cryptographic streaming digests so that unchanged files are skipped in less than 1 millisecond. Only modified files are re-embedded.
-
-When you ask a question, the assistant calls `query_codebase`, which:
-1. Vectorizes your natural language prompt.
-2. Performs approximate nearest neighbor (ANN) vector search.
-3. Passes the matches through the **Context Squeezer** to strip empty lines and redundant tokens.
-4. Injects high-density, formatted code spans directly into the conversation:
-
-```markdown
-FILE [crates/engine/src/embed.rs]
-L95-L115:
-```rust
-if mask_sum > 0.0 {
-    for val in pooled.iter_mut().take(hidden_dim) {
-        *val /= mask_sum;
-    }
-}
-
-// L2 normalize
-let norm: f32 = pooled.iter().map(|v| v * v).sum::<f32>().sqrt();
-if norm > 1e-12 {
-    for val in pooled.iter_mut().take(hidden_dim) {
-        *val /= norm;
-    }
-}
-```
-```
-
----
+After editing, **restart your AI agent** to pick up the new server.
 
 ## ⚙️ Configuration & Customization
 

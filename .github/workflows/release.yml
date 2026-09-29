@@ -24,29 +24,25 @@ jobs:
           - name: linux-x86_64
             os: ubuntu-22.04
             target: x86_64-unknown-linux-gnu
-            archive_ext: tar.gz
-            artifact_name: alpax
+            binary: alpax
 
-          # ── macOS arm64 (Apple Silicon) ─────────────────────────────────
+          # ── macOS arm64 (Apple Silicon M1/M2/M3) ───────────────────────
           - name: macos-arm64
             os: macos-14
             target: aarch64-apple-darwin
-            archive_ext: tar.gz
-            artifact_name: alpax
+            binary: alpax
 
           # ── macOS x86_64 (Intel) ────────────────────────────────────────
           - name: macos-x86_64
             os: macos-13
             target: x86_64-apple-darwin
-            archive_ext: tar.gz
-            artifact_name: alpax
+            binary: alpax
 
           # ── Windows x86_64 ──────────────────────────────────────────────
           - name: windows-x86_64
             os: windows-2022
             target: x86_64-pc-windows-msvc
-            archive_ext: zip
-            artifact_name: alpax.exe
+            binary: alpax.exe
 
     steps:
       - name: Checkout repository
@@ -57,128 +53,136 @@ jobs:
         with:
           targets: ${{ matrix.target }}
 
-      # ── Linux: install protoc (required by lance-encoding build script) ─
+      # ── System dependencies ─────────────────────────────────────────────
       - name: Install protoc (Linux)
         if: runner.os == 'Linux'
         run: |
-          sudo apt-get update -y
-          sudo apt-get install -y protobuf-compiler
+          sudo apt-get update -y -q
+          sudo apt-get install -y -q protobuf-compiler
 
-      # ── macOS: install protoc ───────────────────────────────────────────
       - name: Install protoc (macOS)
         if: runner.os == 'macOS'
         run: brew install protobuf
 
-      # ── Windows: install protoc ─────────────────────────────────────────
       - name: Install protoc (Windows)
         if: runner.os == 'Windows'
-        run: choco install protoc --no-progress
+        run: choco install protoc --no-progress -y
 
-      # ── Cache Cargo registry + build artefacts ──────────────────────────
+      # ── Cargo cache ─────────────────────────────────────────────────────
       - name: Cache Cargo
         uses: Swatinem/rust-cache@v2
         with:
-          key: ${{ matrix.target }}
+          key: release-${{ matrix.target }}
 
-      # ── Apply lance recursion-limit patch ───────────────────────────────
+      # ── lance recursion_limit patch (Linux/macOS) ───────────────────────
       - name: Patch lance recursion limit (Linux/macOS)
         if: runner.os != 'Windows'
+        shell: bash
         run: |
           LANCE_LIB=$(find ~/.cargo/registry/src -name "lib.rs" -path "*/lance-*/src/lib.rs" 2>/dev/null | head -1 || true)
           if [ -n "$LANCE_LIB" ] && ! grep -q "recursion_limit" "$LANCE_LIB"; then
             sed -i.bak '1s/^/#![recursion_limit = "512"]\n/' "$LANCE_LIB"
           fi
-        shell: bash
 
       - name: Patch lance recursion limit (Windows)
         if: runner.os == 'Windows'
         shell: pwsh
         run: |
-          $lanceLib = Get-ChildItem -Recurse -Path "$env:USERPROFILE\.cargo\registry\src" -Filter "lib.rs" |
-            Where-Object { $_.FullName -match 'lance-\d' } | Select-Object -First 1
-          if ($lanceLib -and -not (Select-String -Path $lanceLib.FullName -Pattern "recursion_limit" -Quiet)) {
+          $lanceLib = Get-ChildItem -Recurse -Path "$env:USERPROFILE\.cargo\registry\src" -Filter "lib.rs" `
+            -ErrorAction SilentlyContinue | Where-Object { $_.FullName -match 'lance-\d' } | Select-Object -First 1
+          if ($lanceLib -and -not (Select-String -Path $lanceLib.FullName -Pattern "recursion_limit" -Quiet -ErrorAction SilentlyContinue)) {
             $content = Get-Content $lanceLib.FullName -Raw
             Set-Content $lanceLib.FullName -Value ('#![recursion_limit = "512"]' + "`n" + $content)
           }
 
-      # ── Build release binary ─────────────────────────────────────────────
+      # ── Build ────────────────────────────────────────────────────────────
       - name: Build release binary
         run: cargo build --release --target ${{ matrix.target }}
         env:
-          # Force protoc discovery on all platforms
           PROTOC: protoc
 
-      # ── Package: Linux / macOS → .tar.gz ───────────────────────────────
+      # ── Package (Linux / macOS) → .tar.gz ──────────────────────────────
+      # The archive contains ONLY the binary.
+      # The install script is fetched directly from the raw GitHub URL by
+      # the user's curl one-liner — no need to bundle it.
       - name: Package archive (Linux/macOS)
         if: runner.os != 'Windows'
-        run: |
-          STAGING="alpax-${{ github.ref_name }}-${{ matrix.name }}"
-          mkdir -p "${STAGING}"
-          cp "target/${{ matrix.target }}/release/alpax" "${STAGING}/"
-          cp scripts/install.sh "${STAGING}/"
-          cp scripts/setup.sh "${STAGING}/"
-          cp README.md "${STAGING}/"
-          chmod +x "${STAGING}/install.sh" "${STAGING}/setup.sh"
-          tar czf "${STAGING}.tar.gz" "${STAGING}"
-          echo "ARCHIVE=${STAGING}.tar.gz" >> "$GITHUB_ENV"
         shell: bash
+        run: |
+          ARCHIVE="alpax-${{ github.ref_name }}-${{ matrix.name }}.tar.gz"
+          tar czf "${ARCHIVE}" \
+              -C "target/${{ matrix.target }}/release" alpax
+          echo "ARCHIVE=${ARCHIVE}" >> "$GITHUB_ENV"
 
-      # ── Package: Windows → .zip ─────────────────────────────────────────
+      # ── Package (Windows) → .zip ────────────────────────────────────────
       - name: Package archive (Windows)
         if: runner.os == 'Windows'
         shell: pwsh
         run: |
-          $staging = "alpax-${{ github.ref_name }}-${{ matrix.name }}"
-          New-Item -ItemType Directory -Path $staging
-          Copy-Item "target\${{ matrix.target }}\release\alpax.exe" "$staging\"
-          Copy-Item "scripts\install.ps1" "$staging\"
-          Copy-Item "scripts\setup.sh" "$staging\" -ErrorAction SilentlyContinue
-          Copy-Item "README.md" "$staging\"
-          Compress-Archive -Path "$staging\*" -DestinationPath "$staging.zip"
-          echo "ARCHIVE=$staging.zip" | Out-File -FilePath $env:GITHUB_ENV -Append
+          $archive = "alpax-${{ github.ref_name }}-${{ matrix.name }}.zip"
+          Compress-Archive `
+              -Path "target\${{ matrix.target }}\release\alpax.exe" `
+              -DestinationPath $archive
+          echo "ARCHIVE=$archive" | Out-File -FilePath $env:GITHUB_ENV -Append
 
-      # ── Compute SHA256 checksum ──────────────────────────────────────────
+      # ── SHA-256 checksum ─────────────────────────────────────────────────
       - name: Compute checksum (Linux/macOS)
         if: runner.os != 'Windows'
-        run: sha256sum "${{ env.ARCHIVE }}" > "${{ env.ARCHIVE }}.sha256"
         shell: bash
+        run: sha256sum "${{ env.ARCHIVE }}" > "${{ env.ARCHIVE }}.sha256"
 
       - name: Compute checksum (Windows)
         if: runner.os == 'Windows'
         shell: pwsh
         run: |
-          $hash = (Get-FileHash "${{ env.ARCHIVE }}" -Algorithm SHA256).Hash.ToLower()
-          "$hash  ${{ env.ARCHIVE }}" | Out-File -FilePath "${{ env.ARCHIVE }}.sha256"
+          $h = (Get-FileHash "${{ env.ARCHIVE }}" -Algorithm SHA256).Hash.ToLower()
+          "$h  ${{ env.ARCHIVE }}" | Out-File -FilePath "${{ env.ARCHIVE }}.sha256"
 
-      # ── Upload to GitHub Release ─────────────────────────────────────────
-      - name: Upload release assets
+      # ── Publish to GitHub Release ────────────────────────────────────────
+      - name: Upload to GitHub Release
         uses: softprops/action-gh-release@v2
         with:
           fail_on_unmatched_files: true
+          generate_release_notes: true
           files: |
             ${{ env.ARCHIVE }}
             ${{ env.ARCHIVE }}.sha256
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+
+  # ── After all platform builds succeed, post the install one-liners ────────
+  announce:
+    name: Post install instructions
+    runs-on: ubuntu-22.04
+    needs: build
+    steps:
+      - name: Update release body with install one-liners
+        uses: softprops/action-gh-release@v2
+        with:
+          append_body: true
           body: |
-            ## Alpax ${{ github.ref_name }}
 
-            ### Quick Install
+            ---
 
-            **Linux / macOS**
+            ## ⚡ One-line Install
+
+            **Linux / macOS** (paste in any terminal):
             ```bash
-            curl -fsSL https://github.com/${{ github.repository }}/releases/download/${{ github.ref_name }}/alpax-${{ github.ref_name }}-linux-x86_64.tar.gz | tar xz
-            cd alpax-${{ github.ref_name }}-linux-x86_64
-            bash install.sh
+            curl -fsSL https://raw.githubusercontent.com/${{ github.repository }}/main/scripts/install.sh | bash
             ```
 
-            **Windows (PowerShell)**
+            **Windows** (paste in PowerShell):
             ```powershell
-            Invoke-WebRequest -Uri "https://github.com/${{ github.repository }}/releases/download/${{ github.ref_name }}/alpax-${{ github.ref_name }}-windows-x86_64.zip" -OutFile alpax.zip
-            Expand-Archive alpax.zip -DestinationPath alpax
-            cd alpax
-            .\install.ps1
+            irm https://raw.githubusercontent.com/${{ github.repository }}/main/scripts/install.ps1 | iex
             ```
 
-            ### Checksums
-            Verify your download against the `.sha256` files included in this release.
+            The installer automatically:
+            - Detects your OS & CPU architecture
+            - Downloads the correct binary above
+            - Asks you a few optional config questions (press Enter for defaults)
+            - Downloads the AI embedding model (~22 MB) once
+            - Scans for all installed AI coding agents and wires them up
+
+            > Verify your download: each asset has a matching `.sha256` checksum file.
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
