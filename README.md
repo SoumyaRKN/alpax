@@ -25,36 +25,35 @@ Alpax solves this with a native, single-binary Rust engine:
 
 ---
 
-## 🚀 Quick Start Guide
+## 🚀 Quick Start Guide (For All Users)
 
-### 1. Download or Build Alpax
+### 1-Click Universal Installer (Recommended)
 
-#### Option A: Build from Source (Recommended)
-Prerequisites: Standard [Rust toolchain](https://rustup.rs/) (1.75+).
+No manual path copying or environment configuration required. The installer sets up the `alpax` binary, downloads centralized models to `~/.alpax/models/`, and automatically detects and configures **Claude Desktop**, **Cursor**, and other MCP clients.
 
+#### On macOS & Linux:
+Run in your terminal:
 ```bash
-# Clone the repository
-git clone https://github.com/sourceround/alpax.git
-cd alpax
-
-# Run automated asset setup (downloads model & tokenizer)
-bash scripts/setup.sh --yes
-
-# Build the release binary
-cargo build --release
+bash scripts/install.sh
 ```
-The compiled, standalone binary will be located at:
-`target/release/alpax`
+
+#### On Windows:
+Open PowerShell and run:
+```powershell
+powershell -ExecutionPolicy Bypass -File scripts\install.ps1
+```
 
 ---
 
-#### Option B: Using a Pre-Built Release Binary
-If you downloaded a pre-compiled `alpax` binary from GitHub Releases:
-1. Place the `alpax` binary into a folder on your system (e.g., `~/tools/alpax` or `/usr/local/bin`).
-2. Run the asset download script once to fetch the lightweight model:
-   ```bash
-   bash scripts/setup.sh --yes
-   ```
+### Manual Build / Developer Setup
+If you prefer building from source manually:
+```bash
+git clone https://github.com/sourceround/alpax.git
+cd alpax
+bash scripts/setup.sh --yes
+cargo build --release
+```
+The compiled, standalone binary will be located at `target/release/alpax`.
 
 ---
 
@@ -122,26 +121,25 @@ Add the server to your settings file:
 
 Once connected, your AI agent automatically gains access to Alpax's semantic tools:
 
-### Step 1: Index Your Workspace
-Ask your assistant to index your code:
+### Zero-Friction Out-of-the-Box Operation
+**You don't even have to tell Alpax to index!** When you ask your first question about any project, Alpax detects that the index is new and automatically indexes the codebase before answering.
 
-> *"Please index my workspace at /path/to/my/project using Alpax."*
+### Natural Language Semantic Search
+Ask your assistant questions about any codebase in plain English:
 
-The assistant calls the `index_workspace` tool:
-- Scans source files respecting `.gitignore`.
-- Extracts overlapping sliding-window chunks.
-- Computes INT8 embeddings and saves them into the local LanceDB store.
-- **Incremental**: Only newly created or modified files are vectorized on subsequent runs.
-
-### Step 2: Natural Language Semantic Search
-Ask your assistant questions about the codebase without needing exact function names or regex:
-
-> *"Where is JWT authentication and token verification implemented?"*
-> *"Find where vector mean-pooling and L2 normalization occur."*
+> *"Where is JWT authentication and token verification implemented?"*  
+> *"Find where vector mean-pooling and L2 normalization occur."*  
 > *"Show me how errors are mapped to JSON-RPC codes."*
 
-The assistant calls `query_codebase`, which:
-1. Vectorizes the natural language prompt.
+### Explicit Incremental Re-Indexing (Optional)
+If you made significant changes and want to trigger a manual refresh:
+
+> *"Please re-index this workspace using Alpax."*
+
+Alpax uses BLAKE3 cryptographic streaming digests so that unchanged files are skipped in less than 1 millisecond. Only modified files are re-embedded.
+
+When you ask a question, the assistant calls `query_codebase`, which:
+1. Vectorizes your natural language prompt.
 2. Performs approximate nearest neighbor (ANN) vector search.
 3. Passes the matches through the **Context Squeezer** to strip empty lines and redundant tokens.
 4. Injects high-density, formatted code spans directly into the conversation:

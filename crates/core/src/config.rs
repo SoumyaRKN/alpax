@@ -97,16 +97,43 @@ impl Config {
 
     #[must_use]
     pub fn resolve_model(&self) -> PathBuf {
-        PathBuf::from(&self.model)
+        let local = PathBuf::from(&self.model);
+        if local.exists() {
+            return local;
+        }
+        if let Some(home) = dirs_home() {
+            let global = home.join(".alpax").join(&self.model);
+            if global.exists() {
+                return global;
+            }
+        }
+        local
     }
 
     #[must_use]
     pub fn resolve_tokenizer(&self) -> PathBuf {
-        PathBuf::from(&self.tokenizer)
+        let local = PathBuf::from(&self.tokenizer);
+        if local.exists() {
+            return local;
+        }
+        if let Some(home) = dirs_home() {
+            let global = home.join(".alpax").join(&self.tokenizer);
+            if global.exists() {
+                return global;
+            }
+        }
+        local
     }
 
     #[must_use]
     pub fn resolve_db(&self) -> PathBuf {
         PathBuf::from(&self.db)
     }
+}
+
+fn dirs_home() -> Option<PathBuf> {
+    env::var("HOME")
+        .or_else(|_| env::var("USERPROFILE"))
+        .ok()
+        .map(PathBuf::from)
 }

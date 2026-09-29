@@ -54,6 +54,16 @@ impl Hasher {
     pub fn clear(&mut self) {
         self.cache.clear();
     }
+
+    #[must_use]
+    pub fn cached_paths(&self) -> Vec<PathBuf> {
+        self.cache.keys().cloned().collect()
+    }
+
+    pub fn remove(&mut self, path: &Path) {
+        let canonical = path.canonicalize().unwrap_or_else(|_| path.to_path_buf());
+        self.cache.remove(&canonical);
+    }
 }
 
 #[cfg(test)]

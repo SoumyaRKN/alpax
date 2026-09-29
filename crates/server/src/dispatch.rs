@@ -144,26 +144,11 @@ pub async fn handle(req: Request, state: Arc<Mutex<State>>) -> Response {
     }
 }
 
-async fn handle_index(id: Option<Value>, args: Value, state: Arc<Mutex<State>>) -> Response {
-    let path_str = match args.get("path").and_then(|v| v.as_str()) {
-        Some(p) => p,
-        None => return Response::err(id, -32602, "Missing 'path' argument in index_workspace"),
-    };
-
-    let root_path = Path::new(path_str);
-    if !root_path.exists() {
-        return Response::err(
-            id,
-            -32602,
-            format!("Path '{}' does not exist", root_path.display()),
-        );
-    }
-
+async fn index_internal(st: &mut State, root_path: &Path) -> Result<String, String> {
     info!("Starting workspace scan at: {}", root_path.display());
     let files = Slicer::scan(root_path);
     info!("Discovered {} candidate files", files.len());
 
-    let mut st = state.lock().await;
     let mut files_indexed = 0usize;
     let mut files_skipped = 0usize;
     let mut all_chunks = Vec::new();
@@ -196,18 +181,15 @@ async fn handle_index(id: Option<Value>, args: Value, state: Arc<Mutex<State>>) 
         const BATCH_SIZE: usize = 64;
         for chunk_slice in all_chunks.chunks(BATCH_SIZE) {
             let texts: Vec<String> = chunk_slice.iter().map(|c| c.text.clone()).collect();
-            let vectors = match st.embedder.batch(&texts) {
-                Ok(v) => v,
-                Err(e) => {
-                    error!("Batch embedding failed: {e}");
-                    return Response::err(id, -32603, format!("Embedding error: {e}"));
-                }
-            };
+            let vectors = st
+                .embedder
+                .batch(&texts)
+                .map_err(|e| format!("Embedding error: {e}"))?;
 
-            if let Err(e) = st.store.save(chunk_slice, &vectors).await {
-                error!("Store save failed: {e}");
-                return Response::err(id, -32603, format!("Vector store error: {e}"));
-            }
+            st.store
+                .save(chunk_slice, &vectors)
+                .await
+                .map_err(|e| format!("Vector store error: {e}"))?;
         }
     }
 
@@ -215,18 +197,42 @@ async fn handle_index(id: Option<Value>, args: Value, state: Arc<Mutex<State>>) 
         "Indexing complete. Indexed {files_indexed} files ({total_chunks} chunks), skipped {files_skipped} unchanged files."
     );
     info!("{msg}");
+    Ok(msg)
+}
 
-    Response::ok(
-        id,
-        json!({
-            "content": [
-                {
-                    "type": "text",
-                    "text": msg
-                }
-            ]
-        }),
-    )
+async fn handle_index(id: Option<Value>, args: Value, state: Arc<Mutex<State>>) -> Response {
+    let path_str = match args.get("path").and_then(|v| v.as_str()) {
+        Some(p) => p,
+        None => return Response::err(id, -32602, "Missing 'path' argument in index_workspace"),
+    };
+
+    let root_path = Path::new(path_str);
+    if !root_path.exists() {
+        return Response::err(
+            id,
+            -32602,
+            format!("Path '{}' does not exist", root_path.display()),
+        );
+    }
+
+    let mut st = state.lock().await;
+    match index_internal(&mut st, root_path).await {
+        Ok(msg) => Response::ok(
+            id,
+            json!({
+                "content": [
+                    {
+                        "type": "text",
+                        "text": msg
+                    }
+                ]
+            }),
+        ),
+        Err(e) => {
+            error!("Indexing failed: {e}");
+            Response::err(id, -32603, e)
+        }
+    }
 }
 
 async fn handle_query(id: Option<Value>, args: Value, state: Arc<Mutex<State>>) -> Response {
@@ -241,7 +247,13 @@ async fn handle_query(id: Option<Value>, args: Value, state: Arc<Mutex<State>>) 
         .map_or(5usize, |v| v as usize);
 
     info!("Executing semantic search for query: '{prompt}' with limit: {limit}");
-    let st = state.lock().await;
+    let mut st = state.lock().await;
+
+    // Automatic out-of-the-box indexing: If table does not yet exist, auto-index current directory
+    if st.store.table.is_none() {
+        info!("No existing index found. Automatically indexing workspace on first query...");
+        let _ = index_internal(&mut st, Path::new(".")).await;
+    }
 
     let query_vector = match st.embedder.single(prompt) {
         Ok(v) => v,
