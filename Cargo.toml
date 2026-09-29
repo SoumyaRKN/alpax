@@ -1,0 +1,47 @@
+[workspace]
+members = [
+    "crates/core",
+    "crates/engine",
+    "crates/squeeze",
+    "crates/server",
+]
+resolver = "2"
+
+[workspace.dependencies]
+# Serialization & Error Handling
+serde = { version = "1.0", features = ["derive"] }
+serde_json = "1.0"
+toml = "0.8"
+anyhow = "1.0"
+thiserror = "1.0"
+tempfile = "3.10"
+
+# Async Runtime & Utilities
+tokio = { version = "1.38", features = ["full"] }
+futures = "0.3"
+
+# Observability
+tracing = "0.1"
+tracing-subscriber = { version = "0.3", features = ["env-filter", "fmt"] }
+
+# Data & Storage
+arrow-array = "51.0"
+arrow-schema = "51.0"
+lancedb = "0.4"
+
+# Hashing & File Traversal
+blake3 = "1.5"
+ignore = "0.4"
+num_cpus = "1.16"
+
+# Embeddings & Inference
+ndarray = "0.15"
+ort = { version = "=2.0.0-rc.4", default-features = false, features = ["download-binaries"] }
+tokenizers = { version = "0.19", default-features = false, features = ["onig"] }
+
+[profile.release]
+opt-level = 3
+lto = true
+codegen-units = 1
+panic = "abort"
+strip = true

@@ -1,0 +1,8 @@
+[package]
+name = "alpax-squeeze"
+version = "0.1.0"
+edition = "2021"
+description = "Context squeezing and pruning engine for Alpax"
+
+[dependencies]
+alpax-core = { path = "../core" }

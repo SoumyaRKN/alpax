@@ -1,0 +1,25 @@
+[package]
+name = "alpax-engine"
+version = "0.1.0"
+edition = "2021"
+description = "Local CPU vector indexing and embedding engine for Alpax"
+
+[dependencies]
+alpax-core = { path = "../core" }
+tokio = { workspace = true }
+anyhow = { workspace = true }
+thiserror = { workspace = true }
+blake3 = { workspace = true }
+ignore = { workspace = true }
+ort = { workspace = true }
+tokenizers = { workspace = true }
+ndarray = { workspace = true }
+num_cpus = { workspace = true }
+lancedb = { workspace = true }
+arrow-array = { workspace = true }
+arrow-schema = { workspace = true }
+futures = { workspace = true }
+tracing = { workspace = true }
+
+[dev-dependencies]
+tempfile = { workspace = true }

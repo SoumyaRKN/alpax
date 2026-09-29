@@ -1,0 +1,20 @@
+[package]
+name = "alpax"
+version = "0.1.0"
+edition = "2021"
+description = "Ultra-lightweight local-first Code Vectorizer and Context-Squeezing MCP Server"
+
+[[bin]]
+name = "alpax"
+path = "src/main.rs"
+
+[dependencies]
+alpax-core = { path = "../core" }
+alpax-engine = { path = "../engine" }
+alpax-squeeze = { path = "../squeeze" }
+tokio = { workspace = true }
+serde = { workspace = true }
+serde_json = { workspace = true }
+anyhow = { workspace = true }
+tracing = { workspace = true }
+tracing-subscriber = { workspace = true }

@@ -1,0 +1,12 @@
+[package]
+name = "alpax-core"
+version = "0.1.0"
+edition = "2021"
+description = "Core types and configuration for Alpax"
+
+[dependencies]
+serde = { workspace = true }
+serde_json = { workspace = true }
+toml = { workspace = true }
+anyhow = { workspace = true }
+thiserror = { workspace = true }

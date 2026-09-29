@@ -1,0 +1,59 @@
+# Alpax Implementation Plan & Progress Tracking
+
+## Architectural Principles
+- Single-word lowercase naming convention for crates (`core`, `engine`, `squeeze`, `server`) and modules (`chunk`, `hit`, `hash`, `slice`, `embed`, `store`, `prune`, `proto`, `dispatch`, `config`).
+- Zero duplicate code (DRY).
+- Production-grade Rust with explicit type annotations and robust error propagation.
+- Strict CPU-only execution with <50MB idle RAM footprint.
+- All internal logging strictly directed to `stderr` (`stdout` reserved for JSON-RPC 2.0).
+- Config-driven architecture with interactive setup and runtime configurability.
+
+---
+
+## Phases & Tasks
+
+- [x] **Phase 1: Workspace & Documentation Initialization**
+  - [x] Create project layout and verify git status.
+  - [x] Update `TODO` with master execution plan.
+  - [x] Create root `Cargo.toml` with workspace dependencies and release profile.
+  - [x] Update `.gitignore` (ignore `target/`, `.alpax_vector_db/`, `*.lance/`, `models/*.onnx`, `models/*.bin`, `.env`, `alpax.toml`).
+  - [x] Create `AGENTS.md` (compiler checks, single-word naming rules, token conservation, CPU-only).
+  - [x] Create `ARCHITECTURE.md` (MCP JSON-RPC stdio -> Engine [Hasher -> Slicer -> Embedder -> Store] -> Context Squeezer).
+  - [x] Create `docs/api.md` (tool definitions for `index_workspace`, `query_codebase`, etc.).
+  - [x] Create `docs/dev.md` (development workflow, build commands, verification checklist).
+  - [x] Create `scripts/setup.sh` (interactive and automated asset downloader + config generator).
+
+- [x] **Phase 2: Crates Implementation - Core & Squeeze**
+  - [x] `crates/core`:
+    - [x] `Cargo.toml` (package: `alpax-core`).
+    - [x] `src/chunk.rs`: `Chunk` struct (`file`, `text`, `start`, `end`).
+    - [x] `src/hit.rs`: `Hit` struct (`file`, `text`, `start`, `end`, `score`).
+    - [x] `src/config.rs`: `Config` struct with model, tokenizer, db paths, chunk size, overlap; loading from file/env/defaults.
+    - [x] `src/lib.rs`: Expose `chunk`, `hit`, `config` and re-exports.
+  - [x] `crates/squeeze`:
+    - [x] `Cargo.toml` (package: `alpax-squeeze`, depends on `alpax-core`).
+    - [x] `src/prune.rs`: `Pruner` struct with `squeeze(hits: Vec<Hit>) -> String`.
+    - [x] `src/lib.rs`: Expose `prune` and re-export `Pruner`.
+
+- [x] **Phase 3: Crates Implementation - Engine**
+  - [x] `crates/engine/Cargo.toml` (package: `alpax-engine`, depends on `alpax-core`, `tokio`, `anyhow`, `blake3`, `ignore`, `ort`, `tokenizers`, `ndarray`, `num_cpus`, `lancedb`, `arrow-array`, `arrow-schema`, `futures`).
+  - [x] `crates/engine/src/hash.rs`: `Hasher` with BLAKE3 64KB streaming and dirty-checking cache.
+  - [x] `crates/engine/src/slice.rs`: `Slicer` with sliding window chunking and `ignore`-based walker.
+  - [x] `crates/engine/src/embed.rs`: `Embedder` with INT8 ONNX Session, HuggingFace tokenizer, mean pooling, L2 normalization.
+  - [x] `crates/engine/src/store.rs`: `Store` with LanceDB vector storage, table creation, record batch saving, ANN search.
+  - [x] `crates/engine/src/lib.rs`: Expose `hash`, `slice`, `embed`, `store` and re-exports.
+
+- [x] **Phase 4: Crates Implementation - Server (MCP)**
+  - [x] `crates/server/Cargo.toml` (package: `alpax`, depends on `alpax-core`, `alpax-engine`, `alpax-squeeze`, `tokio`, `serde`, `serde_json`, `anyhow`, `tracing`, `tracing-subscriber`).
+  - [x] `crates/server/src/proto.rs`: JSON-RPC 2.0 framing (`Request`, `Response`, helper constructors).
+  - [x] `crates/server/src/dispatch.rs`: MCP protocol handler (`initialize`, `tools/list`, `tools/call` for `index_workspace`, `query_codebase`, `get_config`, `set_config`).
+  - [x] `crates/server/src/main.rs`: Entrypoint with `tracing` to `stderr`, reading stdio line-by-line, framing responses to `stdout`.
+
+- [x] **Phase 5: Verification & Testing**
+  - [x] Run `scripts/setup.sh` to fetch quantized ONNX model and tokenizer.
+  - [x] Run `cargo check --workspace`.
+  - [x] Run `cargo test --workspace` for unit and integration testing.
+  - [x] Run `cargo clippy --workspace -- -D warnings`.
+  - [x] Run `cargo build --release` to verify static binary at `target/release/alpax`.
+  - [x] Measure binary size and idle RAM footprint.
+  - [x] Document registration in `mcp_config.json`.
