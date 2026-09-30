@@ -32,7 +32,7 @@ Alpax solves this with a native, single-binary Rust engine:
 Paste this single command in your terminal:
 
 ```bash
-curl -fsSL https://raw.githubusercontent.com/sourceround/alpax/main/scripts/install.sh | bash
+curl -fsSL https://raw.githubusercontent.com/SoumyaRKN/alpax/main/scripts/install.sh | bash
 ```
 
 ### Windows
@@ -40,7 +40,7 @@ curl -fsSL https://raw.githubusercontent.com/sourceround/alpax/main/scripts/inst
 Paste this in **PowerShell**:
 
 ```powershell
-irm https://raw.githubusercontent.com/sourceround/alpax/main/scripts/install.ps1 | iex
+irm https://raw.githubusercontent.com/SoumyaRKN/alpax/main/scripts/install.ps1 | iex
 ```
 
 > **That's it.** The installer will guide you through the rest interactively.
@@ -52,7 +52,7 @@ irm https://raw.githubusercontent.com/sourceround/alpax/main/scripts/install.ps1
 | Step | What the installer does |
 |------|------------------------|
 | **1 — Detect platform** | Identifies your OS and CPU architecture automatically |
-| **2 — Download binary** | Fetches the prebuilt `alpax` binary from [GitHub Releases](https://github.com/sourceround/alpax/releases/latest) (or uses local build) |
+| **2 — Download binary** | Fetches the prebuilt `alpax` binary from [GitHub Releases](https://github.com/SoumyaRKN/alpax/releases/latest) (or uses local build) |
 | **3 — Configure** | Asks a few optional questions with sensible defaults (just press **Enter** to skip) |
 | **4 — Download models** | Downloads the quantized AI embedding model (~22 MB) and tokenizer once |
 | **5 — PATH & Instructions** | Adds the `alpax` binary to your PATH and displays MCP configuration instructions |
@@ -64,7 +64,7 @@ After installation, add Alpax to your AI agent's MCP configuration (shown below)
 ### Build from Source (developers only)
 
 ```bash
-git clone https://github.com/sourceround/alpax.git
+git clone https://github.com/SoumyaRKN/alpax.git
 cd alpax
 cargo build --release
 bash scripts/install.sh        # runs the installer to configure models and PATH

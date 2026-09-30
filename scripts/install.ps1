@@ -2,10 +2,10 @@
 # Alpax (अल्प) — Universal Windows Installer (PowerShell)
 # =============================================================================
 # USAGE (one-liner, as shown in README — run in PowerShell):
-#   irm https://raw.githubusercontent.com/sourceround/alpax/main/scripts/install.ps1 | iex
+#   irm https://raw.githubusercontent.com/SoumyaRKN/alpax/main/scripts/install.ps1 | iex
 #
 # Or download and run manually:
-#   Invoke-WebRequest -Uri "https://raw.githubusercontent.com/sourceround/alpax/main/scripts/install.ps1" -OutFile install.ps1
+#   Invoke-WebRequest -Uri "https://raw.githubusercontent.com/SoumyaRKN/alpax/main/scripts/install.ps1" -OutFile install.ps1
 #   powershell -ExecutionPolicy Bypass -File .\install.ps1
 #
 # Flags:
@@ -59,7 +59,7 @@ Write-Ok "Detected: Windows $Arch → artifact suffix: $Platform"
 # ── Step 2: Download binary ───────────────────────────────────────────────────
 Write-Step 2 "Downloading Alpax binary"
 
-$Repo = "sourceround/alpax"
+$Repo = "SoumyaRKN/alpax"
 $ApiUrl = "https://api.github.com/repos/$Repo/releases/latest"
 
 # Determine install directories

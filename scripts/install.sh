@@ -3,7 +3,7 @@
 # Alpax (अल्प) — Universal Installer
 # =============================================================================
 # USAGE (one-liner, as shown in README):
-#   curl -fsSL https://raw.githubusercontent.com/sourceround/alpax/main/scripts/install.sh | bash
+#   curl -fsSL https://raw.githubusercontent.com/SoumyaRKN/alpax/main/scripts/install.sh | bash
 #
 # Or with options:
 #   curl -fsSL .../install.sh | bash -s -- --yes          # non-interactive (accept all defaults)
@@ -78,7 +78,7 @@ case "$OS" in
     *)
         log_err "Unsupported OS: $OS"
         log_err "For Windows, open PowerShell and run:"
-        log_err "  irm https://raw.githubusercontent.com/sourceround/alpax/main/scripts/install.ps1 | iex"
+        log_err "  irm https://raw.githubusercontent.com/SoumyaRKN/alpax/main/scripts/install.ps1 | iex"
         exit 1
         ;;
 esac
@@ -98,7 +98,7 @@ log_ok "Detected: ${BOLD}${OS}${RESET} on ${BOLD}${ARCH}${RESET} → artifact su
 # ── Step 2: Download binary ───────────────────────────────────────────────────
 log_step 2 "Obtaining Alpax binary"
 
-REPO="sourceround/alpax"
+REPO="SoumyaRKN/alpax"
 GITHUB_API="https://api.github.com/repos/${REPO}/releases/latest"
 
 # Resolve latest release tag
