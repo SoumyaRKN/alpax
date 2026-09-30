@@ -26,23 +26,23 @@ jobs:
             target: x86_64-unknown-linux-gnu
             binary: alpax
 
-          # ── macOS arm64 (Apple Silicon M1/M2/M3) ───────────────────────
-          - name: macos-arm64
-            os: macos-14
-            target: aarch64-apple-darwin
-            binary: alpax
+          # ── macOS arm64 (Apple Silicon M1/M2/M3) [temporarily paused] ───
+          # - name: macos-arm64
+          #   os: macos-14
+          #   target: aarch64-apple-darwin
+          #   binary: alpax
 
-          # ── macOS x86_64 (Intel) ────────────────────────────────────────
-          - name: macos-x86_64
-            os: macos-13
-            target: x86_64-apple-darwin
-            binary: alpax
+          # ── macOS x86_64 (Intel) [temporarily paused] ───────────────────
+          # - name: macos-x86_64
+          #   os: macos-13
+          #   target: x86_64-apple-darwin
+          #   binary: alpax
 
-          # ── Windows x86_64 ──────────────────────────────────────────────
-          - name: windows-x86_64
-            os: windows-2022
-            target: x86_64-pc-windows-msvc
-            binary: alpax.exe
+          # ── Windows x86_64 [temporarily paused] ─────────────────────────
+          # - name: windows-x86_64
+          #   os: windows-2022
+          #   target: x86_64-pc-windows-msvc
+          #   binary: alpax.exe
 
     steps:
       - name: Checkout repository
@@ -68,6 +68,37 @@ jobs:
         if: runner.os == 'Windows'
         run: choco install protoc --no-progress -y
 
+      # ── Download official Microsoft ONNX Runtime 1.18.1 for macOS ───────
+      # Fixes parcel.pyke.io 404 for msort_static by pointing ort-sys to official binaries
+      - name: Setup ONNX Runtime (macOS)
+        if: runner.os == 'macOS'
+        shell: bash
+        run: |
+          ORT_VER="1.18.1"
+          if [ "${{ matrix.target }}" = "aarch64-apple-darwin" ]; then
+            ARCH="arm64"
+          else
+            ARCH="x64"
+          fi
+          curl -sLO "https://github.com/microsoft/onnxruntime/releases/download/v${ORT_VER}/onnxruntime-osx-${ARCH}-${ORT_VER}.tgz"
+          tar -xzf "onnxruntime-osx-${ARCH}-${ORT_VER}.tgz"
+          ORT_DIR="$PWD/onnxruntime-osx-${ARCH}-${ORT_VER}"
+          echo "ORT_LIB_LOCATION=$ORT_DIR/lib" >> "$GITHUB_ENV"
+          echo "DYLD_LIBRARY_PATH=$ORT_DIR/lib:$DYLD_LIBRARY_PATH" >> "$GITHUB_ENV"
+
+      # ── Download official Microsoft ONNX Runtime 1.18.1 for Windows ─────
+      # Fixes parcel.pyke.io 404 for msort_static on Windows MSVC
+      - name: Setup ONNX Runtime (Windows)
+        if: runner.os == 'Windows'
+        shell: pwsh
+        run: |
+          $ortVer = "1.18.1"
+          Invoke-WebRequest -Uri "https://github.com/microsoft/onnxruntime/releases/download/v$ortVer/onnxruntime-win-x64-$ortVer.zip" -OutFile "onnxruntime.zip"
+          Expand-Archive -Path "onnxruntime.zip" -DestinationPath "."
+          $ortDir = (Get-Item "onnxruntime-win-x64-$ortVer").FullName
+          "ORT_LIB_LOCATION=$ortDir\lib" | Out-File -FilePath $env:GITHUB_ENV -Append
+          "$ortDir\lib" | Out-File -FilePath $env:GITHUB_PATH -Append
+
       # ── Cargo cache ─────────────────────────────────────────────────────
       - name: Cache Cargo
         uses: Swatinem/rust-cache@v2
@@ -75,25 +106,33 @@ jobs:
           key: release-${{ matrix.target }}
 
       # ── lance recursion_limit patch (Linux/macOS) ───────────────────────
+      # Unpack crates with cargo check first, then inject recursion_limit to lance
       - name: Patch lance recursion limit (Linux/macOS)
         if: runner.os != 'Windows'
         shell: bash
         run: |
-          LANCE_LIB=$(find ~/.cargo/registry/src -name "lib.rs" -path "*/lance-*/src/lib.rs" 2>/dev/null | head -1 || true)
-          if [ -n "$LANCE_LIB" ] && ! grep -q "recursion_limit" "$LANCE_LIB"; then
-            sed -i.bak '1s/^/#![recursion_limit = "512"]\n/' "$LANCE_LIB"
-          fi
+          cargo check --target ${{ matrix.target }} || true
+          for LANCE_LIB in $(find ~/.cargo/registry/src -name "lib.rs" -path "*/lance-[0-9]*/src/lib.rs" 2>/dev/null); do
+            if [ -f "$LANCE_LIB" ] && ! grep -q "recursion_limit" "$LANCE_LIB"; then
+              sed -i.bak '1s/^/#![recursion_limit = "512"]\n/' "$LANCE_LIB"
+              echo "Patched recursion_limit in $LANCE_LIB"
+            fi
+          done
 
       - name: Patch lance recursion limit (Windows)
         if: runner.os == 'Windows'
         shell: pwsh
         run: |
-          $lanceLib = Get-ChildItem -Recurse -Path "$env:USERPROFILE\.cargo\registry\src" -Filter "lib.rs" `
-            -ErrorAction SilentlyContinue | Where-Object { $_.FullName -match 'lance-\d' } | Select-Object -First 1
-          if ($lanceLib -and -not (Select-String -Path $lanceLib.FullName -Pattern "recursion_limit" -Quiet -ErrorAction SilentlyContinue)) {
-            $content = Get-Content $lanceLib.FullName -Raw
-            Set-Content $lanceLib.FullName -Value ('#![recursion_limit = "512"]' + "`n" + $content)
-          }
+          cargo check --target ${{ matrix.target }} 2>$null
+          Get-ChildItem -Recurse -Path "$env:USERPROFILE\.cargo\registry\src" -Filter "lib.rs" -ErrorAction SilentlyContinue |
+            Where-Object { $_.FullName -match 'lance-\d.*src[\\/]lib\.rs$' } |
+            ForEach-Object {
+              if (-not (Select-String -Path $_.FullName -Pattern "recursion_limit" -Quiet -ErrorAction SilentlyContinue)) {
+                $content = Get-Content $_.FullName -Raw
+                Set-Content $_.FullName -Value ('#![recursion_limit = "512"]' + "`n" + $content)
+                Write-Host "Patched $($_.FullName)"
+              }
+            }
 
       # ── Build ────────────────────────────────────────────────────────────
       - name: Build release binary
