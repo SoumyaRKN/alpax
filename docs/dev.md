@@ -15,15 +15,15 @@ This document details the development environment setup, build instructions, tes
 
 ## 2. Setup & Asset Provisioning
 
-Run the automated setup script to download the quantized `all-MiniLM-L6-v2` ONNX model and tokenizer configuration:
+Run the installer to download the binary, quantized `all-MiniLM-L6-v2` ONNX model, and tokenizer configuration:
 
 ```bash
-bash scripts/setup.sh
+bash scripts/install.sh
 ```
 
 Non-interactive setup using all defaults:
 ```bash
-bash scripts/setup.sh --yes
+bash scripts/install.sh --yes
 ```
 
 The script provisions:

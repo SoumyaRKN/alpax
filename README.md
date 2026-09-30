@@ -52,34 +52,12 @@ irm https://raw.githubusercontent.com/sourceround/alpax/main/scripts/install.ps1
 | Step | What the installer does |
 |------|------------------------|
 | **1 — Detect platform** | Identifies your OS and CPU architecture automatically |
-| **2 — Download binary** | Fetches the correct prebuilt `alpax` binary from [GitHub Releases](https://github.com/sourceround/alpax/releases/latest) |
+| **2 — Download binary** | Fetches the prebuilt `alpax` binary from [GitHub Releases](https://github.com/sourceround/alpax/releases/latest) (or uses local build) |
 | **3 — Configure** | Asks a few optional questions with sensible defaults (just press **Enter** to skip) |
 | **4 — Download models** | Downloads the quantized AI embedding model (~22 MB) and tokenizer once |
-| **5 — Wire up agents** | Scans for every AI coding agent installed on your system and safely adds Alpax to each one's MCP config — without touching your other settings |
-| **6 — PATH** | Adds the `alpax` binary to your shell's PATH permanently |
+| **5 — PATH & Instructions** | Adds the `alpax` binary to your PATH and displays MCP configuration instructions |
 
-After installation, **restart your AI agent** and start asking questions about your code. No other steps required.
-
----
-
-### Supported AI Agents (auto-detected)
-
-The installer detects and configures **all** of the following if they are present:
-
-| Agent | Detection method |
-|-------|-----------------|
-| **Claude Desktop** | App directory / config file |
-| **Claude Code CLI** (`claude`) | Command in PATH + `~/.claude.json` |
-| **Cursor IDE** | `~/.cursor/` directory / app bundle |
-| **Windsurf IDE** | `~/.codeium/windsurf/` directory / app bundle |
-| **VS Code + Continue** | `~/.continue/` directory |
-| **VS Code + Cline** | VS Code global storage for `saoudrizwan.claude-dev` |
-| **VS Code + Roo Code** | VS Code global storage for `rooveterinaryinc.roo-cline` |
-| **Zed Editor** | App bundle / `zed` command in PATH |
-| **Antigravity CLI** (`agy`) | `~/.gemini/antigravity-cli/` directory |
-| **Neovim + mcphub.nvim** | `~/.config/mcphub/` directory |
-
-Each agent's existing config is **updated, not replaced** — all your other MCP servers and settings are preserved.
+After installation, add Alpax to your AI agent's MCP configuration (shown below) and **restart your AI agent**.
 
 ---
 
@@ -88,16 +66,15 @@ Each agent's existing config is **updated, not replaced** — all your other MCP
 ```bash
 git clone https://github.com/sourceround/alpax.git
 cd alpax
-bash scripts/setup.sh --yes    # downloads models + patches dependencies
 cargo build --release
-bash scripts/install.sh        # runs the standard installer using the local binary
+bash scripts/install.sh        # runs the installer to configure models and PATH
 ```
 
-## 🔌 Manual MCP Configuration (Fallback)
+## 🔌 AI Coding Agent MCP Configuration
 
-The installer handles this automatically. Only use this section if you need to configure an agent manually or if auto-detection didn't pick up your agent.
+Alpax provides semantic code search to any MCP-compatible agent. Add the following to your agent's MCP configuration file:
 
-Add the following to your agent's MCP configuration file:
+### Standard MCP Configuration (JSON)
 
 ```json
 {
@@ -109,20 +86,23 @@ Add the following to your agent's MCP configuration file:
 }
 ```
 
-Replace `/path/to/alpax` with the actual path printed at the end of the installer (e.g. `~/.local/bin/alpax` on Linux/macOS, or `%LOCALAPPDATA%\alpax\bin\alpax.exe` on Windows).
+> Replace `/path/to/alpax` with the binary path (e.g. `~/.local/bin/alpax` on Linux/macOS, or `%LOCALAPPDATA%\alpax\bin\alpax.exe` on Windows).
 
-### Config file locations by agent
+### Config File Locations by Agent
 
 | Agent | Config file path |
 |-------|-----------------|
-| Claude Desktop (macOS) | `~/Library/Application Support/Claude/claude_desktop_config.json` |
-| Claude Desktop (Linux) | `~/.config/Claude/claude_desktop_config.json` |
-| Claude Desktop (Windows) | `%APPDATA%\Claude\claude_desktop_config.json` |
-| Claude Code CLI | `~/.claude.json` |
-| Cursor IDE | `~/.cursor/mcp.json` |
-| Windsurf IDE | `~/.codeium/windsurf/mcp_config.json` |
-| VS Code / Continue | `~/.continue/config.json` |
-| Antigravity CLI (`agy`) | `~/.gemini/config/mcp_config.json` |
+| **Antigravity CLI** (`agy`) | `~/.gemini/config/mcp_config.json` |
+| **Claude Desktop** (macOS) | `~/Library/Application Support/Claude/claude_desktop_config.json` |
+| **Claude Desktop** (Linux) | `~/.config/Claude/claude_desktop_config.json` |
+| **Claude Desktop** (Windows) | `%APPDATA%\Claude\claude_desktop_config.json` |
+| **Claude Code CLI** | `~/.claude.json` |
+| **Cursor IDE** | `~/.cursor/mcp.json` |
+| **Windsurf IDE** | `~/.codeium/windsurf/mcp_config.json` |
+| **VS Code / Cline** | `~/.cline/mcp_settings.json` |
+| **VS Code / Roo Code** | `~/.roo/mcp.json` |
+| **VS Code / Continue** | `~/.continue/config.json` |
+| **Neovim + mcphub.nvim** | `~/.config/mcphub/servers.json` |
 
 For **Zed**, add to `~/.config/zed/settings.json` under `"context_servers"`:
 ```json
@@ -136,7 +116,7 @@ For **Zed**, add to `~/.config/zed/settings.json` under `"context_servers"`:
 }
 ```
 
-After editing, **restart your AI agent** to pick up the new server.
+After updating the configuration, **restart your AI agent** to connect.
 
 ## ⚙️ Configuration & Customization
 
@@ -147,7 +127,7 @@ Alpax is config-driven and respects parameters in the following priority order:
 4. Built-in defaults.
 
 ### Configuration File (`alpax.toml`)
-Created automatically when running `scripts/setup.sh`:
+Created automatically when running `scripts/install.sh`:
 
 ```toml
 # Path to quantized INT8 ONNX model

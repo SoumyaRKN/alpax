@@ -35,10 +35,10 @@ impl State {
     }
 }
 
-pub async fn handle(req: Request, state: Arc<Mutex<State>>) -> Response {
+pub async fn handle(req: Request, state: Arc<Mutex<State>>) -> Option<Response> {
     let id = req.id.clone();
     match req.method.as_str() {
-        "initialize" => Response::ok(
+        "initialize" => Some(Response::ok(
             id,
             json!({
                 "protocolVersion": "2024-11-05",
@@ -50,9 +50,10 @@ pub async fn handle(req: Request, state: Arc<Mutex<State>>) -> Response {
                     "version": "0.1.0"
                 }
             }),
-        ),
-        "notifications/initialized" => Response::ok(id, json!({})),
-        "tools/list" => Response::ok(
+        )),
+        // MCP notifications MUST NOT receive a response — silently acknowledge and return None.
+        "notifications/initialized" | "notifications/cancelled" | "notifications/progress" => None,
+        "tools/list" => Some(Response::ok(
             id,
             json!({
                 "tools": [
@@ -135,16 +136,16 @@ pub async fn handle(req: Request, state: Arc<Mutex<State>>) -> Response {
                     }
                 ]
             }),
-        ),
+        )),
         "tools/call" => {
             let params = match req.params {
                 Some(p) => p,
-                None => return Response::err(id, -32602, "Missing params"),
+                None => return Some(Response::err(id, -32602, "Missing params")),
             };
 
             let tool_name = match params.get("name").and_then(|v| v.as_str()) {
                 Some(name) => name,
-                None => return Response::err(id, -32602, "Missing tool 'name' parameter"),
+                None => return Some(Response::err(id, -32602, "Missing tool 'name' parameter")),
             };
 
             let args = params
@@ -152,16 +153,21 @@ pub async fn handle(req: Request, state: Arc<Mutex<State>>) -> Response {
                 .cloned()
                 .unwrap_or_else(|| json!({}));
 
-            match tool_name {
+            let resp = match tool_name {
                 "index_workspace" => handle_index(id, args, state).await,
                 "reindex_workspace" => handle_reindex(id, args, state).await,
                 "query_codebase" => handle_query(id, args, state).await,
                 "get_config" => handle_get_config(id, state).await,
                 "set_config" => handle_set_config(id, args, state).await,
                 _ => Response::err(id, -32601, format!("Unknown tool: {tool_name}")),
-            }
+            };
+            Some(resp)
         }
-        _ => Response::err(id, -32601, format!("Method '{}' not found", req.method)),
+        _ => Some(Response::err(
+            id,
+            -32601,
+            format!("Method '{}' not found", req.method),
+        )),
     }
 }
 

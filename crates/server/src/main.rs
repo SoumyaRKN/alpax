@@ -33,7 +33,7 @@ async fn main() -> Result<()> {
 
     if !model_path.exists() {
         error!(
-            "Model file not found at: {}. Please run 'bash scripts/setup.sh' to download required weights.",
+            "Model file not found at: {}. Please run 'bash scripts/install.sh' to download required weights.",
             model_path.display()
         );
         std::process::exit(1);
@@ -41,7 +41,7 @@ async fn main() -> Result<()> {
 
     if !tokenizer_path.exists() {
         error!(
-            "Tokenizer file not found at: {}. Please run 'bash scripts/setup.sh' to download tokenizer configuration.",
+            "Tokenizer file not found at: {}. Please run 'bash scripts/install.sh' to download tokenizer configuration.",
             tokenizer_path.display()
         );
         std::process::exit(1);
@@ -75,14 +75,16 @@ async fn main() -> Result<()> {
             Ok(req) => handle(req, state.clone()).await,
             Err(e) => {
                 error!("Invalid JSON-RPC request received: {e}");
-                Response::err(None, -32700, format!("Parse error: {e}"))
+                Some(Response::err(None, -32700, format!("Parse error: {e}")))
             }
         };
 
-        if let Ok(serialized) = serde_json::to_string(&resp) {
-            stdout.write_all(serialized.as_bytes()).await?;
-            stdout.write_all(b"\n").await?;
-            stdout.flush().await?;
+        if let Some(resp) = resp {
+            if let Ok(serialized) = serde_json::to_string(&resp) {
+                stdout.write_all(serialized.as_bytes()).await?;
+                stdout.write_all(b"\n").await?;
+                stdout.flush().await?;
+            }
         }
     }
 

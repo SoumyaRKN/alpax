@@ -41,7 +41,7 @@ Alpax is an ultra-lightweight, local-first Code Vectorizer and Context-Squeezing
 - LLM context windows are finite and costly. The squeezing engine (`squeeze::prune`) must strip redundant whitespace and empty lines, aggregate contiguous spans, group by file, and present dense contextual blocks to maximize context value per token.
 
 ### 2.5 Config-Driven Architecture
-- All operational parameters (model path, tokenizer path, database path, chunk size, overlap) must have sane defaults, be configurable via interactive setup (`scripts/setup.sh`), configuration files (`alpax.toml`), environment variables, or MCP configuration endpoints.
+- All operational parameters (model path, tokenizer path, database path, chunk size, overlap) must have sane defaults, be configurable via interactive setup (`scripts/install.sh`), configuration files (`alpax.toml`), environment variables, or MCP configuration endpoints.
 
 ---
 
