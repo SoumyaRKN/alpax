@@ -40,9 +40,7 @@ pub async fn handle(req: Request, state: Arc<Mutex<State>>) -> Option<Response> 
 
     // In JSON-RPC 2.0 & MCP, any request with id: None is a notification.
     // Servers MUST NOT reply to notifications under any circumstances.
-    if id.is_none() {
-        return None;
-    }
+    id.as_ref()?;
 
     match req.method.as_str() {
         "initialize" => Some(Response::ok(
@@ -395,7 +393,19 @@ async fn handle_query(id: Option<Value>, args: Value, state: Arc<Mutex<State>>) 
 
 async fn handle_get_config(id: Option<Value>, state: Arc<Mutex<State>>) -> Response {
     let st = state.lock().await;
-    Response::ok(id, json!(st.config))
+    let config_text = serde_json::to_string_pretty(&st.config).unwrap_or_default();
+    Response::ok(
+        id,
+        json!({
+            "content": [
+                {
+                    "type": "text",
+                    "text": config_text
+                }
+            ],
+            "config": st.config
+        }),
+    )
 }
 
 async fn handle_set_config(id: Option<Value>, args: Value, state: Arc<Mutex<State>>) -> Response {
