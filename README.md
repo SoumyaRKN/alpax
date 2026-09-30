@@ -216,6 +216,64 @@ When `query_codebase` runs, Alpax's internal squeezing engine:
 | **Model Attention Retention** | Diluted across large context | Focused on relevant code snippets |
 | **Speed** | Slow sequential crawling | Sub-millisecond ANN vector retrieval |
 
+### 4. Sample Prompts for All Alpax Tools
+
+Here are real-world prompt examples you can give your AI agent to trigger each Alpax tool effectively, along with the corresponding MCP call:
+
+#### 1. `query_codebase` (Semantic Search & Token-Squeezed Context)
+> Used to pinpoint relevant code logic without filling the context window with entire files.
+* **Finding logic / architecture**:
+  > *"Use Alpax to find where database transactions are committed and error rollbacks are handled."*
+* **Investigating bugs & error paths**:
+  > *"Find how JSON-RPC framing errors are caught and parsed in the server using query_codebase."*
+* **Scoped lookups (controlling `limit`)**:
+  > *"Search the codebase with Alpax (limit: 3) for the Blake3 streaming hasher implementation."*
+* **MCP Call equivalent**:
+  ```json
+  { "name": "query_codebase", "arguments": { "prompt": "database transaction commit rollback error handling", "limit": 5 } }
+  ```
+
+#### 2. `index_workspace` (Initial or Targeted Workspace Indexing)
+> Used when first opening a project or indexing a specific directory into vector storage.
+* **Full workspace scan**:
+  > *"Index this repository with Alpax so we can perform semantic code search."*
+* **Subdirectory scan**:
+  > *"Scan and vector-index only the `./crates/engine` directory using Alpax."*
+* **MCP Call equivalent**:
+  ```json
+  { "name": "index_workspace", "arguments": { "path": ".", "force": false } }
+  ```
+
+#### 3. `reindex_workspace` (Fast Incremental or Forced Refresh)
+> Used after making code edits to ensure modified code is immediately searchable.
+* **Incremental update (default)**:
+  > *"I just modified a few files. Update the Alpax index so the new code is searchable."*
+* **Complete rebuild from scratch**:
+  > *"Force a complete re-index of the entire workspace from scratch with reindex_workspace."*
+* **MCP Call equivalent**:
+  ```json
+  { "name": "reindex_workspace", "arguments": { "force": false } }
+  ```
+
+#### 4. `get_config` (Inspect Active Server Settings)
+> Used to verify model path, tokenizer path, database location, and chunk parameters.
+* **Check current status**:
+  > *"Check the current Alpax configuration and active chunk sizes."*
+  > *"What model and database directory is Alpax currently using?"*
+* **MCP Call equivalent**:
+  ```json
+  { "name": "get_config", "arguments": {} }
+  ```
+
+#### 5. `set_config` (Tune Chunking at Runtime)
+> Used to adapt chunking granularity to your project's coding style (e.g. larger chunks for verbose files).
+* **Adjust chunk size and overlap**:
+  > *"Configure Alpax to use a chunk size of 80 lines and an overlap of 15 lines."*
+* **MCP Call equivalent**:
+  ```json
+  { "name": "set_config", "arguments": { "chunk_size": 80, "chunk_overlap": 15 } }
+  ```
+
 ---
 
 ## 🏗️ Architecture
