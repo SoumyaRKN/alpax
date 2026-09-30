@@ -37,6 +37,13 @@ impl State {
 
 pub async fn handle(req: Request, state: Arc<Mutex<State>>) -> Option<Response> {
     let id = req.id.clone();
+
+    // In JSON-RPC 2.0 & MCP, any request with id: None is a notification.
+    // Servers MUST NOT reply to notifications under any circumstances.
+    if id.is_none() {
+        return None;
+    }
+
     match req.method.as_str() {
         "initialize" => Some(Response::ok(
             id,
@@ -51,8 +58,10 @@ pub async fn handle(req: Request, state: Arc<Mutex<State>>) -> Option<Response> 
                 }
             }),
         )),
-        // MCP notifications MUST NOT receive a response — silently acknowledge and return None.
-        "notifications/initialized" | "notifications/cancelled" | "notifications/progress" => None,
+        "ping" => Some(Response::ok(id, json!({}))),
+        "prompts/list" => Some(Response::ok(id, json!({ "prompts": [] }))),
+        "resources/list" => Some(Response::ok(id, json!({ "resources": [] }))),
+        "resources/templates/list" => Some(Response::ok(id, json!({ "resourceTemplates": [] }))),
         "tools/list" => Some(Response::ok(
             id,
             json!({

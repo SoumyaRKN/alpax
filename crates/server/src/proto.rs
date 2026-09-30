@@ -1,8 +1,13 @@
 use serde::{Deserialize, Serialize};
 use serde_json::Value;
 
+fn default_jsonrpc() -> String {
+    "2.0".to_string()
+}
+
 #[derive(Serialize, Deserialize, Clone, Debug, PartialEq)]
 pub struct Request {
+    #[serde(default = "default_jsonrpc")]
     pub jsonrpc: String,
     pub id: Option<Value>,
     pub method: String,
